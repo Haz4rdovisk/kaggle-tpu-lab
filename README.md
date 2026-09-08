@@ -138,6 +138,55 @@ or turn thinking off entirely with `{"enable_thinking": false}`. To change the
 *server-side default* (for clients that can't pass extra fields), launch with
 `--reasoning-effort medium`.
 
+## Desktop companion (Windows tray app)
+
+A native **Windows system-tray app** (Tauri 2 + Rust + React/TypeScript) that sits in
+your tray and gives you a compact 420px panel over the running session. It does not
+replace or re-implement the launcher — it **reuses `launch.py`** for every action and
+attaches to the session that's already up, so it's safe to start at any time.
+
+The panel shows, live:
+
+- **Phase** (Queued → Provisioning → Starting → Loading weights → Compiling → **Ready**),
+  with the right color per state — queued is *not* an error.
+- **Uptime** and **time remaining** against the keepalive (estimated where the source
+  is approximate, flagged with a `~`).
+- **Decode tok/s** and **context length**.
+- The **endpoint** with a `LIVE` / `RESERVED` badge and a one-click copy button.
+- **Pi provider sync** status — one button to (re)point the `kaggle-tpu` provider at
+  the live endpoint, with full backup + validation + **rollback** on any failure. It
+  never touches your other providers or your default model.
+- A scrollable **activity log** from the structured events.
+- **Start** (only when idle/stopped/failed) and **Stop** (with a confirmation dialog).
+  Starting an already-running/queued session **re-attaches** instead of double-launching.
+
+**How it knows the state** — three sources, reconciled every poll (phase-dependent
+interval): the coarse Kaggle kernel status, the structured ntfy events, and a direct
+authenticated `GET {endpoint}/v1/models` probe. ntfy is *auxiliary*: if it's down the
+app keeps the last known state and never marks a running kernel dead; the probe is the
+liveness ground truth when the event history is gone.
+
+**The API key never leaves Rust.** It is read into memory for the probe, is structurally
+absent from the state payload sent to the UI, and is redacted from every log line. The
+UI shows only the endpoint.
+
+Run it (from this repo, on the Windows box):
+
+```bash
+npm install
+npm run tauri dev        # dev build — tray icon + panel appear
+```
+
+Build a distributable (needs the MSVC build tools + Windows SDK, both free):
+
+```
+npm run tauri build      # → src-tauri\target\release\kaggle-tpu-companion.exe
+                         #    + NSIS .exe and .msi installers under bundle\
+```
+
+The source lives in `src/` (UI) and `src-tauri/` (Rust backend), at the repo root
+alongside `launch.py`.
+
 ## What's actually in this repo
 
 ```
@@ -146,6 +195,7 @@ kernel/serve_qwen38.py           the Kaggle kernel: runtime → cache → weight
 notebook/qwen38-tpu-serve.ipynb  the same flow as a run-it-yourself notebook
 patches/mtp-rollback-v0280.diff  GDN state-rollback fix (port of tpu-inference PR #3178)
 tools/embed_patch.py             re-embeds the patch into the kernel script after edits
+src/, src-tauri/, package.json   the Windows desktop companion (tray app) — see above
 ```
 
 Plus two public Kaggle datasets the kernel attaches:

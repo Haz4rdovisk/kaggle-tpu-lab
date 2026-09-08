@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 out/
 *.log
+node_modules/
+dist/
+src-tauri/target/
