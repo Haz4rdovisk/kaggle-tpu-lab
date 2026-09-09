@@ -355,11 +355,14 @@ impl MachineState {
             "benchmark-error" => self.push_note(ts, "Benchmark failed", NoteKind::Warn),
             "heartbeat" => {
                 // up_min is the kernel's own (floored) counter since serving
-                // started — the best available keepalive anchor, so it refines
-                // serving_from whenever we have one.
+                // started — the best available keepalive anchor while we do
+                // not have a better one. A truncated estimate must never
+                // downgrade an exact serving/ready anchor.
                 if let Some(up_min) = f("up_min").and_then(|v| v.as_i64()) {
-                    self.serving_from = Some(ts - up_min * 60);
-                    self.serving_from_estimated = true;
+                    if self.serving_from.is_none() || self.serving_from_estimated {
+                        self.serving_from = Some(ts - up_min * 60);
+                        self.serving_from_estimated = true;
+                    }
                 } else if self.serving_from.is_none() {
                     if let Some(ra) = self.ready_at {
                         self.serving_from = Some(ra);
@@ -732,6 +735,45 @@ mod tests {
         assert!(m3.serving_from_estimated);
         assert!(m3.remaining_is_estimated());
         assert_eq!(m3.remaining_secs(3_400), Some(480 * 60 - 2_000));
+    }
+
+    #[test]
+    fn heartbeat_never_downgrades_exact_anchor() {
+        let mut m = MachineState::default();
+        m.reset_for_kernel("u/k", None);
+        m.apply_event(&ev(
+            1_000,
+            "ready",
+            j(serde_json::json!({"endpoint": "https://x.y/v1", "keepalive_min": 480})),
+        ));
+        // ready established the exact serving anchor.
+        assert_eq!(m.serving_from, Some(1_000));
+        assert!(!m.serving_from_estimated);
+
+        // A floored heartbeat arrives later: the exact anchor must survive
+        // and the remaining counter must stay exact (no "~" in the UI).
+        m.apply_event(&ev(2_000, "heartbeat", j(serde_json::json!({"up_min": 16}))));
+        assert_eq!(m.serving_from, Some(1_000));
+        assert!(!m.serving_from_estimated);
+        assert!(!m.remaining_is_estimated());
+        assert_eq!(m.remaining_secs(2_000), Some(480 * 60 - 1_000));
+    }
+
+    #[test]
+    fn heartbeat_still_refines_estimated_anchor() {
+        let mut m = MachineState::default();
+        m.reset_for_kernel("u/k", None);
+        m.apply_event(&ev(
+            1_000,
+            "ready",
+            j(serde_json::json!({"endpoint": "https://x.y/v1", "keepalive_min": 480})),
+        ));
+        // Probe-recovery style anchor: present but flagged estimated.
+        m.serving_from = Some(950);
+        m.serving_from_estimated = true;
+        m.apply_event(&ev(2_000, "heartbeat", j(serde_json::json!({"up_min": 10}))));
+        assert_eq!(m.serving_from, Some(1_400));
+        assert!(m.serving_from_estimated);
     }
 
     #[test]
