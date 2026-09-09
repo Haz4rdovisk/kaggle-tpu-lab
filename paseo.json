@@ -1,0 +1,31 @@
+{
+  "worktree": {
+    "setup": "npm ci"
+  },
+  "scripts": {
+    "dev": {
+      "type": "service",
+      "command": "npm run dev"
+    },
+    "test": {
+      "command": "npm test"
+    },
+    "build": {
+      "command": "npm run build"
+    },
+    "tauri-build": {
+      "command": "npm run tauri:build"
+    }
+  },
+  "metadataGeneration": {
+    "branchName": {
+      "instructions": "Use fix/, feat/, chore/ ou refactor/ conforme a tarefa. Use nomes curtos em kebab-case que descrevam a mudança. Não invente número de issue."
+    },
+    "commitMessage": {
+      "instructions": "Use Conventional Commits. Mensagem curta, imperativa e específica; use scope quando útil. Não mencione IA ou agentes."
+    },
+    "pullRequest": {
+      "instructions": "Comece com um resumo curto do objetivo e da solução. Depois inclua Changes, Test Plan e Risks/Limitations quando aplicável. Informe exatamente quais checks foram executados e não declare como testado o que não foi executado."
+    }
+  }
+}
