@@ -63,8 +63,15 @@ impl TpuPhase {
         )
     }
 
+    /// Phases in which a fresh Start is offered. Mirrors the frontend
+    /// `CAN_START` set (`src/types/session.ts`): idle | stopped | failed.
+    /// A failed session must be restartable — `start_state` resets the
+    /// terminal flag via `reset_for_kernel` before pushing a new kernel.
     pub fn can_start(self) -> bool {
-        matches!(self, TpuPhase::Idle | TpuPhase::Stopped)
+        matches!(
+            self,
+            TpuPhase::Idle | TpuPhase::Stopped | TpuPhase::Failed
+        )
     }
 
     pub fn can_stop(self) -> bool {
@@ -647,6 +654,47 @@ mod tests {
         // Later events must not move the phase.
         m.apply_event(&ev(300, "ready", j(serde_json::json!({"endpoint": "https://x.y/v1"}))));
         assert_eq!(m.phase, TpuPhase::Failed);
+    }
+
+    #[test]
+    fn failed_session_is_restartable() {
+        // Mirrors the frontend CAN_START set: a Failed session must offer
+        // Start again (panel and tray stay consistent). Restarting a new
+        // kernel clears the terminal flag.
+        let mut m = MachineState::default();
+        m.reset_for_kernel("u/k", None);
+        m.apply_event(&ev(
+            200,
+            "failed",
+            j(serde_json::json!({"step": "install"})),
+        ));
+        assert_eq!(m.phase, TpuPhase::Failed);
+        assert!(m.terminal.is_some());
+        assert!(
+            m.phase.can_start(),
+            "Failed must allow a restart, like Idle/Stopped"
+        );
+
+        // Pushing a new kernel resets the machine, terminal included.
+        m.reset_for_kernel("u/k2", None);
+        assert_eq!(m.phase, TpuPhase::Queued);
+        assert!(m.terminal.is_none());
+    }
+
+    #[test]
+    fn can_start_phase_matrix() {
+        // Start is only offered from resting states, never mid-flight.
+        assert!(TpuPhase::Idle.can_start());
+        assert!(TpuPhase::Stopped.can_start());
+        assert!(TpuPhase::Failed.can_start());
+        assert!(!TpuPhase::Queued.can_start());
+        assert!(!TpuPhase::Provisioning.can_start());
+        assert!(!TpuPhase::Starting.can_start());
+        assert!(!TpuPhase::LoadingWeights.can_start());
+        assert!(!TpuPhase::Compiling.can_start());
+        assert!(!TpuPhase::Healthy.can_start());
+        assert!(!TpuPhase::Ready.can_start());
+        assert!(!TpuPhase::Stopping.can_start());
     }
 
     #[test]
