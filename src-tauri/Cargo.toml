@@ -1,6 +1,6 @@
 [package]
 name = "kaggle-tpu-companion"
-version = "0.2.0"
+version = "0.3.0"
 description = "Windows companion for the kaggle-tpu-lab Qwen3.8-27B TPU session"
 authors = ["lucastq"]
 edition = "2021"
@@ -21,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = "2"
 thiserror = "2"
+tauri-plugin-single-instance = "2"
 
 [profile.dev]
 # O padrao (debug = 2) gerava sozinho ~1.5 GB de .pdb mais rlibs gigantes no target/debug.
