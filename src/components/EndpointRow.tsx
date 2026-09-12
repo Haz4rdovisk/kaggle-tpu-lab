@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "@phosphor-icons/react";
 import type { SessionSnapshot } from "../types/session";
 import { shortenEndpoint } from "../lib/format";
 import { actions } from "../lib/store";
@@ -36,7 +36,7 @@ export default function EndpointRow({ snap, copied }: Props) {
             aria-label="Copy endpoint URL"
           >
             {copied ? (
-              <Check size={14} className="tone-green" aria-hidden />
+              <Check size={14} weight="bold" className="tone-green" aria-hidden />
             ) : (
               <Copy size={14} aria-hidden />
             )}

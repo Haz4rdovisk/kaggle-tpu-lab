@@ -1,12 +1,12 @@
 import type { ReactElement } from "react";
-import { Check, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { ArrowsClockwise, Check, Warning, X } from "@phosphor-icons/react";
 import type { PiState } from "../types/session";
 import { useApp, actions } from "../lib/store";
 
 const PI_META: Record<PiState, { label: string; tone: string; icon: ReactElement }> = {
   notConfigured: { label: "NOT CONFIGURED", tone: "gray", icon: <X size={12} aria-hidden /> },
-  synced: { label: "SYNCED", tone: "green", icon: <Check size={12} aria-hidden /> },
-  stale: { label: "STALE", tone: "amber", icon: <TriangleAlert size={12} aria-hidden /> },
+  synced: { label: "SYNCED", tone: "green", icon: <Check size={12} weight="bold" aria-hidden /> },
+  stale: { label: "STALE", tone: "amber", icon: <Warning size={12} weight="fill" aria-hidden /> },
   syncFailed: { label: "SYNC FAILED", tone: "red", icon: <X size={12} aria-hidden /> },
 };
 
@@ -36,7 +36,7 @@ export default function PiRow() {
         disabled={syncing || st === "notConfigured"}
         onClick={() => void actions.syncPi()}
       >
-        <RefreshCw size={13} className={syncing ? "spin" : ""} aria-hidden />
+        <ArrowsClockwise size={13} className={syncing ? "spin" : ""} aria-hidden />
         {syncing ? "Syncing…" : st === "syncFailed" ? "Retry sync" : "Sync now"}
       </button>
     </section>

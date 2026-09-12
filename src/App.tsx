@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ExternalLink, Minus, Play, RefreshCw, Settings, Square, X } from "lucide-react";
+import { ArrowSquareOut, ArrowsClockwise, GearSix, Minus, Moon, Play, Stop, Sun, X } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import StatusHero from "./components/StatusHero";
 import Metrics from "./components/Metrics";
@@ -9,18 +9,20 @@ import ActivityLog from "./components/ActivityLog";
 import StopModal from "./components/StopModal";
 import SettingsModal from "./components/SettingsModal";
 import { useApp, actions, setState } from "./lib/store";
+import { setThemePref, useTheme } from "./lib/theme";
 import { previewMode } from "./lib/backend";
 import { CAN_START, CAN_STOP, type SessionSnapshot } from "./types/session";
 
 function Header({ snap }: { snap: SessionSnapshot | null }) {
   const { busy } = useApp();
+  const { theme } = useTheme();
   const refreshing = busy === "refresh";
   const win = previewMode ? null : getCurrentWindow();
   return (
     <header className="app-header" data-tauri-drag-region>
       <div className="brand">
-        <span className="brand-mark" aria-hidden />
-        <span className="brand-name">TPU Companion</span>
+        <span className="brand-mark" aria-hidden>K</span>
+        <span className="brand-name">Kaggle TPU Companion</span>
         {previewMode && <span className="badge tone-amber preview-badge">PREVIEW</span>}
       </div>
       <div className="header-actions">
@@ -31,7 +33,7 @@ function Header({ snap }: { snap: SessionSnapshot | null }) {
             title="Open kernel on Kaggle"
             aria-label="Open kernel on Kaggle"
           >
-            <ExternalLink size={14} aria-hidden />
+            <ArrowSquareOut size={14} aria-hidden />
           </button>
         )}
         <button
@@ -40,7 +42,15 @@ function Header({ snap }: { snap: SessionSnapshot | null }) {
           title="Refresh now"
           aria-label="Refresh now"
         >
-          <RefreshCw size={14} className={refreshing ? "spin" : ""} aria-hidden />
+          <ArrowsClockwise size={14} className={refreshing ? "spin" : ""} aria-hidden />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => setThemePref(theme === "dark" ? "light" : "dark")}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? <Sun size={14} aria-hidden /> : <Moon size={14} aria-hidden />}
         </button>
         <button
           className="icon-btn"
@@ -48,7 +58,7 @@ function Header({ snap }: { snap: SessionSnapshot | null }) {
           title="Settings"
           aria-label="Settings"
         >
-          <Settings size={14} aria-hidden />
+          <GearSix size={14} aria-hidden />
         </button>
         {win && (
           <div className="win-controls">
@@ -90,7 +100,7 @@ function Footer({ snap }: { snap: SessionSnapshot | null }) {
           disabled={working}
           onClick={() => void actions.start()}
         >
-          <Play size={15} aria-hidden />
+          <Play size={15} weight="bold" aria-hidden />
           {busy === "start" ? "Starting…" : "Start TPU session"}
         </button>
       )}
@@ -100,7 +110,7 @@ function Footer({ snap }: { snap: SessionSnapshot | null }) {
           disabled={working}
           onClick={() => setState({ showStopModal: true })}
         >
-          <Square size={14} aria-hidden />
+          <Stop size={15} weight="bold" aria-hidden />
           {busy === "stop" ? "Stopping…" : "Stop session"}
         </button>
       )}
@@ -150,7 +160,7 @@ export default function App() {
           </>
         ) : (
           <div className="loading-state">
-            <RefreshCw size={18} className="spin" aria-hidden />
+            <ArrowsClockwise size={18} className="spin" aria-hidden />
             <span>Reading session state…</span>
           </div>
         )}

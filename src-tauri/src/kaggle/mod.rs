@@ -134,13 +134,10 @@ pub fn tick_state(st: &AppState) -> SessionSnapshot {
         match &local {
             Some(l) => {
                 if m.kernel.as_deref() != Some(l.kernel.as_str()) {
-                    let note = if m.phase == TpuPhase::Idle {
-                        "Kernel submitted"
-                    } else {
-                        "Reattached to existing session"
-                    };
-                    m.reset_for_kernel(&l.kernel, Some(l.topic.clone()));
-                    m.push_note(now, note, NoteKind::Info);
+                    // Boot/reattach path: never fabricate a submission.
+                    // Only a real push (do_start_state) may claim Queued.
+                    m.reattach(&l.kernel, Some(l.topic.clone()));
+                    m.push_note(now, "Reattached to existing session", NoteKind::Info);
                 }
             }
             None => {
@@ -876,6 +873,25 @@ mod tests {
         let snap = tick_state(&st);
         assert_eq!(snap.phase, TpuPhase::Stopped);
         assert!(snap.phase.can_start());
+    }
+
+    #[test]
+    fn boot_reattach_does_not_fabricate_submission() {
+        // Residual state file + kernel gone server-side: boot must reattach
+        // (Idle) and settle to Stopped — never claim a submission.
+        let (st, _) = make_state(
+            FakeKaggleApi::not_found(),
+            FakeEvents::new(vec![], false),
+            FakeProbe { ok: false },
+            Some(state_val("u/k", "ktl-topic", "sk-x")),
+        );
+        let snap = tick_state(&st);
+        assert!(
+            !snap.activity.iter().any(|n| n.text == "Kernel submitted"),
+            "boot fabricated a submission: {:?}",
+            snap.activity.iter().map(|n| &n.text).collect::<Vec<_>>()
+        );
+        assert_eq!(snap.phase, TpuPhase::Stopped);
     }
 
     #[test]

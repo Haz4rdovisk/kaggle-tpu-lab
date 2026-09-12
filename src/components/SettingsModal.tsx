@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { ArrowCounterClockwise, X } from "@phosphor-icons/react";
 import type { Settings } from "../types/session";
 import { useApp, actions } from "../lib/store";
+import { setThemePref, useTheme } from "../lib/theme";
 
 const DEFAULTS: Settings = {
   projectRoot: null,
@@ -17,6 +18,7 @@ export default function SettingsModal() {
   const { settings, showSettings, busy } = useApp();
   const [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { pref } = useTheme();
 
   if (!showSettings) return null;
   const base = draft ?? settings ?? DEFAULTS;
@@ -139,6 +141,23 @@ export default function SettingsModal() {
           </div>
         )}
 
+        <div className="field">
+          <span>Theme</span>
+          <div className="segmented" role="group" aria-label="Theme">
+            {(["system", "light", "dark"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={pref === p ? "seg-btn is-active" : "seg-btn"}
+                aria-pressed={pref === p}
+                onClick={() => setThemePref(p)}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="modal-actions">
           <button
             className="btn btn-ghost"
@@ -147,7 +166,7 @@ export default function SettingsModal() {
               setError(null);
             }}
           >
-            <RotateCcw size={13} aria-hidden />
+            <ArrowCounterClockwise size={13} aria-hidden />
             Reset
           </button>
           <button

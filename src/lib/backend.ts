@@ -104,6 +104,7 @@ function mockSnapshot(): SessionSnapshot {
       return {
         ...base, phase: "queued", endpointLive: false, readyAt: null, servingFrom: null,
         uptimeSecs: null, remainingSecs: null, decodeTokS: null, maxModelLen: null, mtpTokens: null,
+        queuedAt: now - 3 * 60,
         activity: [{ ts: now, text: "Kernel queued on Kaggle", kind: "info" }],
       };
     case "compiling":
@@ -119,6 +120,7 @@ function mockSnapshot(): SessionSnapshot {
       return {
         ...base, phase: "failed", endpointLive: false, readyAt: null, servingFrom: null,
         uptimeSecs: null, remainingSecs: null, decodeTokS: null, mtpTokens: null,
+        queuedAt: now - 8 * 60,
         piStatus: "stale", ntfyReachable: false,
         error: "vLLM exited with code 1 (CUDA OOM during compile)",
         activity: [
@@ -130,6 +132,7 @@ function mockSnapshot(): SessionSnapshot {
       return {
         ...base, phase: "stopped", endpointLive: false, readyAt: null, servingFrom: null,
         uptimeSecs: null, remainingSecs: null, decodeTokS: null, mtpTokens: null,
+        queuedAt: now - 8 * 60,
         activity: [{ ts: now, text: "TPU session stopped", kind: "info" }],
       };
     default:
