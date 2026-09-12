@@ -1,4 +1,4 @@
-import { Square } from "lucide-react";
+import { Stop } from "@phosphor-icons/react";
 import { useApp, actions } from "../lib/store";
 
 export default function StopModal() {
@@ -18,7 +18,7 @@ export default function StopModal() {
     >
       <div className="modal">
         <div className="modal-icon tone-red">
-          <Square size={18} aria-hidden />
+          <Stop size={18} weight="bold" aria-hidden />
         </div>
         <h2 id="stop-title" className="modal-title">
           Stop the TPU session?

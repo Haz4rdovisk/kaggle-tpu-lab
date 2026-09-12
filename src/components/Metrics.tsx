@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SessionSnapshot } from "../types/session";
 import { formatDuration, formatInt, formatTokS } from "../lib/format";
 
@@ -29,6 +30,17 @@ function Metric({
 
 export default function Metrics({ snap }: Props) {
   const active = snap.uptimeSecs != null;
+  const [nowSecs, setNowSecs] = useState(() => Math.floor(Date.now() / 1000));
+  const queued = snap.phase === "queued";
+  const terminal = snap.phase === "idle" || snap.phase === "stopped" || snap.phase === "failed";
+  const waiting = snap.queuedAt != null && snap.readyAt == null && !terminal;
+  useEffect(() => {
+    if (!waiting) return;
+    const id = window.setInterval(() => setNowSecs(Math.floor(Date.now() / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, [waiting]);
+  const end = snap.readyAt ?? nowSecs;
+  const waitSecs = snap.queuedAt != null ? end - snap.queuedAt : null;
   return (
     <section className="metrics" aria-label="Session metrics">
       <div className="metrics-primary">
@@ -42,6 +54,11 @@ export default function Metrics({ snap }: Props) {
           value={formatDuration(snap.remainingSecs)}
           est={snap.remainingEstimated}
           muted={!active}
+        />
+        <Metric
+          label={queued ? "QUEUE" : "WAITED FOR"}
+          value={formatDuration(waitSecs)}
+          muted={waitSecs == null}
         />
       </div>
       <div className="metrics-secondary">

@@ -207,6 +207,19 @@ impl MachineState {
         };
     }
 
+    /// Reattach to a kernel recorded in the local state file WITHOUT
+    /// fabricating a submission: the phase stays Idle until a real push
+    /// (do_start_state) or live reconciliation moves it forward.
+    pub fn reattach(&mut self, kernel: &str, topic: Option<String>) {
+        *self = MachineState {
+            kernel: Some(kernel.to_string()),
+            topic,
+            phase: TpuPhase::Idle,
+            ntfy_reachable: true,
+            ..Default::default()
+        };
+    }
+
     pub(crate) fn push_note(&mut self, ts: i64, text: &str, kind: NoteKind) {
         // De-duplicate immediate repeats (e.g. duplicate "ready" re-publishes).
         if let Some(last) = self.activity.last() {

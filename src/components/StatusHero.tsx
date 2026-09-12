@@ -1,5 +1,5 @@
 import type { TpuPhase } from "../types/session";
-import { AlertTriangle } from "lucide-react";
+import { WarningCircle } from "@phosphor-icons/react";
 
 export interface PhaseMeta {
   label: string;
@@ -42,7 +42,7 @@ export default function StatusHero({ phase, kernel, error }: Props) {
       </p>
       {error && (
         <div className="hero-error" role="alert">
-          <AlertTriangle size={13} aria-hidden />
+          <WarningCircle size={13} weight="fill" aria-hidden />
           <span title={error}>{error}</span>
         </div>
       )}

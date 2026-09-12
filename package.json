@@ -1,7 +1,7 @@
 {
   "name": "kaggle-tpu-companion",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,12 +13,14 @@
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@tauri-apps/api": "^2.5.0",
-    "lucide-react": "^0.525.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/roboto-mono": "^5.3.0",
     "@tauri-apps/cli": "^2.5.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

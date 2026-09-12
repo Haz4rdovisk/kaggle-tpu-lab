@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ListDashes } from "@phosphor-icons/react";
 import type { ActivityNote } from "../types/session";
 import { formatClock } from "../lib/format";
 
@@ -29,7 +30,10 @@ export default function ActivityLog({ activity }: Props) {
       </div>
       <div className="activity-list" ref={boxRef}>
         {activity.length === 0 && (
-          <div className="activity-empty">No events yet this session.</div>
+          <div className="activity-empty">
+            <ListDashes size={18} aria-hidden />
+            <span>No events yet this session.</span>
+          </div>
         )}
         {activity.map((n, i) => (
           <div className="activity-row" key={`${n.ts}-${i}`}>
