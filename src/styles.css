@@ -658,8 +658,15 @@ code,
   color: var(--text-2);
 }
 
-.pi-card .btn {
-  margin-top: var(--spacing-sm);
+.pi-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* ---------------------------------------------------------------------------

@@ -20,10 +20,21 @@ export default function PiRow() {
     <section className="card pi-card" aria-label="Pi provider sync">
       <div className="card-head">
         <span className="card-title">PI PROVIDER</span>
-        <span className={`badge tone-${meta.tone}`}>
-          {meta.icon}
-          {meta.label}
-        </span>
+        <div className="pi-head-actions">
+          <span className={`badge tone-${meta.tone}`}>
+            {meta.icon}
+            {meta.label}
+          </span>
+          <button
+            className="icon-btn"
+            disabled={syncing || st === "notConfigured"}
+            onClick={() => void actions.syncPi()}
+            title={syncing ? "Syncing…" : st === "syncFailed" ? "Retry Pi sync" : "Sync Pi provider"}
+            aria-label={syncing ? "Syncing…" : st === "syncFailed" ? "Retry Pi sync" : "Sync Pi provider"}
+          >
+            <ArrowsClockwise size={13} className={syncing ? "spin" : ""} aria-hidden />
+          </button>
+        </div>
       </div>
       <p className="pi-hint">
         {st === "synced" && "kaggle-tpu points at the live endpoint."}
@@ -31,14 +42,6 @@ export default function PiRow() {
         {st === "syncFailed" && "Last sync failed — files were rolled back."}
         {st === "notConfigured" && "Pi config not found on this machine."}
       </p>
-      <button
-        className="btn btn-ghost btn-sm"
-        disabled={syncing || st === "notConfigured"}
-        onClick={() => void actions.syncPi()}
-      >
-        <ArrowsClockwise size={13} className={syncing ? "spin" : ""} aria-hidden />
-        {syncing ? "Syncing…" : st === "syncFailed" ? "Retry sync" : "Sync now"}
-      </button>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "kaggle-tpu-companion"
-version = "0.3.1"
+version = "0.3.2"
 description = "Windows companion for the kaggle-tpu-lab Qwen3.8-27B TPU session"
 authors = ["lucastq"]
 edition = "2021"

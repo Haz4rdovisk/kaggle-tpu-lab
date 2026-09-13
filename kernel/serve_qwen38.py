@@ -302,19 +302,69 @@ if n_entries:
 else:
     publish("cache-missing", note="cold compile: expect ~10 extra minutes")
 
+def complete_bf16_repo(path):
+    """Validate a mounted bf16 weights mirror. Returns (ok, detail).
+
+    STRICT rejection: missing/invalid model.safetensors.index.json or a
+    missing shard file. The HF size cross-check is best-effort (skipped when
+    the API is unreachable); a missing MTP tensor name is a log warning only.
+    """
+    idx = os.path.join(path, "model.safetensors.index.json")
+    try:
+        with open(idx) as f:
+            weight_map = json.load(f)["weight_map"]
+    except Exception as e:
+        return False, f"index missing/invalid ({e})"
+    if not isinstance(weight_map, dict) or not weight_map:
+        return False, "index has empty weight_map"
+    shards = sorted(set(weight_map.values()))
+    missing = [v for v in shards if not os.path.isfile(os.path.join(path, v))]
+    if missing:
+        return False, f"{len(missing)} shard(s) missing (e.g. {missing[0]})"
+    total_local = sum(os.path.getsize(os.path.join(path, v)) for v in shards)
+    if not any("mtp" in n.lower() for n in weight_map):
+        log("   warn: no MTP tensor names in index — serving without speculative decoding")
+    try:
+        url = f"https://huggingface.co/api/models/{CFG['hf_model_id']}?blobs=true"
+        with urllib.request.urlopen(url, timeout=15) as r:
+            siblings = json.loads(r.read().decode())["siblings"]
+        api_sizes = {s["rfilename"].split("/")[-1]: s.get("size")
+                     for s in siblings if isinstance(s, dict)}
+        total_api = sum(api_sizes[b] for b in (os.path.basename(v) for v in shards)
+                        if isinstance(api_sizes.get(b), int))
+        if total_api and abs(total_local - total_api) > 1024:
+            return False, f"size mismatch: local {total_local} vs HF {total_api}"
+    except Exception as e:
+        log(f"   note: HF size check skipped ({e})")
+    return True, f"{len(shards)} shards, {total_local / 1e9:.1f} GB verified"
+
+
 # ---------------- 3. weights ----------------
 banner(3, "Model weights", "55 GB bf16 safetensors")
 weights_slug = CFG["weights_dataset"].split("/")[-1]
 model_path = find_input(weights_slug)
+detail = "no local mirror"
 if model_path and os.path.exists(os.path.join(model_path, "config.json")):
-    publish("weights-mounted", path=model_path)
-else:
+    ok, detail = complete_bf16_repo(model_path)
+    if ok:
+        publish("weights-mounted", path=model_path, detail=detail)
+    else:
+        log(f"   mirror incomplete ({detail}) -> downloading from HF")
+        model_path = None
+if not model_path:
     publish("weights-download", model=CFG["hf_model_id"],
-            note="attach the weights dataset to skip this (~5 min parallel download)")
+            note="attach the weights dataset to skip this (~5 min parallel download)",
+            reason=detail)
     t = time.time()
     from huggingface_hub import snapshot_download
     model_path = snapshot_download(CFG["hf_model_id"], allow_patterns=[
-        "*.safetensors", "*.json", "*.txt", "tokenizer*", "vocab*", "merges*"])
+        "*.safetensors", "*.json", "*.txt", "*.jinja", "tokenizer*", "vocab*", "merges*"])
+    try:
+        dl = [f for f in os.listdir(model_path) if f.endswith(".safetensors")]
+        total = sum(os.path.getsize(os.path.join(model_path, f)) for f in dl)
+        log(f"   downloaded {len(dl)} shards, {total / 1e9:.1f} GB")
+    except Exception as e:
+        log(f"   (download inventory skipped: {e})")
     publish("weights-downloaded", secs=int(time.time() - t))
 
 
