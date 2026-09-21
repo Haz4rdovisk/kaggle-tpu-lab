@@ -56,6 +56,7 @@ function mockSnapshot(): SessionSnapshot {
 
   const base: SessionSnapshot = {
     phase: "ready",
+    model: "qwen38-27b",
     kaggleStatus: "running",
     kernel: MOCK_KERNEL,
     endpoint: MOCK_ENDPOINT,
@@ -76,6 +77,7 @@ function mockSnapshot(): SessionSnapshot {
     textOnly: true,
     hasApiKey: true,
     piStatus: "synced",
+    piSyncSupported: true,
     ntfyReachable: true,
     activity: [
       { ts: now - 12 * 60, text: "Heartbeat (up ~6h 10m)", kind: "info" },
@@ -180,12 +182,22 @@ const mock = {
   async getSettings(): Promise<Settings> {
     return {
       projectRoot: null,
-      context: 262144,
-      mtp: 3,
-      thinking: "xhigh",
-      fastStart: true,
-      textOnly: true,
+      model: "qwen38-27b",
       keepaliveMin: 480,
+      qwen: {
+        context: 262144,
+        mtp: 3,
+        thinking: "xhigh",
+        fastStart: true,
+        textOnly: true,
+        noAsyncScheduling: false,
+      },
+      glm: {
+        context: 262144,
+        streams: 4,
+        thinking: "low",
+        textOnly: false,
+      },
     };
   },
   async saveSettings(s: Settings): Promise<Settings> {

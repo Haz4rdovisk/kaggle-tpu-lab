@@ -924,6 +924,8 @@ code,
 
 .modal-wide {
   width: 400px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
 }
 
 .modal-icon {
@@ -1021,6 +1023,20 @@ code,
   flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
+}
+
+.field-check-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 32px;
+  padding: 0 4px;
+}
+
+.field-check-row .field-check {
+  white-space: nowrap;
 }
 
 .field-check input {

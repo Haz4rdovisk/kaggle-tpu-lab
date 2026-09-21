@@ -17,6 +17,12 @@ export type TpuPhase =
   | "failed";
 
 export type PiState = "notConfigured" | "synced" | "stale" | "syncFailed";
+export type ModelId = "qwen38-27b" | "glm53-flash";
+
+export const MODEL_LABELS: Record<ModelId, string> = {
+  "qwen38-27b": "Qwen3.8-27B",
+  "glm53-flash": "GLM-5.3-Flash",
+};
 
 export type NoteKind = "info" | "success" | "warn" | "error";
 
@@ -28,6 +34,7 @@ export interface ActivityNote {
 
 export interface SessionSnapshot {
   phase: TpuPhase;
+  model: ModelId | null;
   kaggleStatus: string | null;
   kernel: string | null;
   endpoint: string | null;
@@ -48,20 +55,35 @@ export interface SessionSnapshot {
   textOnly: boolean | null;
   hasApiKey: boolean;
   piStatus: PiState;
+  piSyncSupported: boolean;
   ntfyReachable: boolean;
   activity: ActivityNote[];
   error: string | null;
   lastUpdate: number;
 }
 
-export interface Settings {
-  projectRoot: string | null;
+export interface QwenSettings {
   context: number;
   mtp: number;
   thinking: string;
   fastStart: boolean;
   textOnly: boolean;
+  noAsyncScheduling: boolean;
+}
+
+export interface GlmSettings {
+  context: number;
+  streams: number;
+  thinking: string;
+  textOnly: boolean;
+}
+
+export interface Settings {
+  projectRoot: string | null;
+  model: ModelId;
   keepaliveMin: number;
+  qwen: QwenSettings;
+  glm: GlmSettings;
 }
 
 /** Phases in which "Start" is offered. */

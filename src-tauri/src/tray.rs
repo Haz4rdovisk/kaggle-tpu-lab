@@ -39,7 +39,11 @@ fn icon_for(phase: TpuPhase) -> Result<Image<'static>, String> {
 }
 
 fn tooltip(snap: &SessionSnapshot) -> String {
-    let mut line1 = "Qwen3.8 TPU".to_string();
+    let mut line1 = snap
+        .model
+        .map(|m| m.tray_name())
+        .unwrap_or("Kaggle TPU")
+        .to_string();
     let line2 = match snap.phase {
         TpuPhase::Ready => match snap.remaining_secs {
             Some(secs) => format!("READY \u{b7} {} remaining", format_compact(secs)),
@@ -77,7 +81,11 @@ fn status_line(snap: &SessionSnapshot) -> String {
 }
 
 fn build_menu(app: &AppHandle, snap: &SessionSnapshot) -> tauri::Result<Menu<tauri::Wry>> {
-    let title = MenuItem::with_id(app, "title", "Qwen3.8 TPU", false, None::<&str>)?;
+    let title_text = snap
+        .model
+        .map(|m| m.tray_name())
+        .unwrap_or("Kaggle TPU");
+    let title = MenuItem::with_id(app, "title", title_text, false, None::<&str>)?;
     let status = MenuItem::with_id(app, "status", status_line(snap), false, None::<&str>)?;
     let open_panel = MenuItem::with_id(app, "open-panel", "Open panel", true, None::<&str>)?;
     let start = MenuItem::with_id(
@@ -94,13 +102,17 @@ fn build_menu(app: &AppHandle, snap: &SessionSnapshot) -> tauri::Result<Menu<tau
         snap.phase.can_stop(),
         None::<&str>,
     )?;
-    let pi_label = match snap.pi_status {
-        crate::pi::PiState::Synced => "Pi: ready",
-        crate::pi::PiState::Stale => "Pi: re-sync needed",
-        crate::pi::PiState::SyncFailed => "Pi: sync failed",
-        crate::pi::PiState::NotConfigured => "Sync with Pi",
+    let pi_label = if !snap.pi_sync_supported {
+        "Pi: Qwen only"
+    } else {
+        match snap.pi_status {
+            crate::pi::PiState::Synced => "Pi: ready",
+            crate::pi::PiState::Stale => "Pi: re-sync needed",
+            crate::pi::PiState::SyncFailed => "Pi: sync failed",
+            crate::pi::PiState::NotConfigured => "Sync with Pi",
+        }
     };
-    let pi_item = MenuItem::with_id(app, "sync-pi", pi_label, true, None::<&str>)?;
+    let pi_item = MenuItem::with_id(app, "sync-pi", pi_label, snap.pi_sync_supported, None::<&str>)?;
     let open_kaggle = MenuItem::with_id(
         app,
         "open-kaggle",

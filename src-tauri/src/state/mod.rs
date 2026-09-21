@@ -10,9 +10,11 @@ use crate::kaggle::probe::EndpointProbe;
 use crate::kaggle::{EventSource, KaggleApi};
 use crate::pi::PiState;
 use crate::state::machine::{ActivityNote, KaggleStatus, MachineState, TpuPhase};
+use crate::state::model::ModelId;
 use crate::state::settings::Settings;
 
 pub mod machine;
+pub mod model;
 pub mod settings;
 
 /// Sanitized view of the session. By construction this struct has no field
@@ -21,6 +23,7 @@ pub mod settings;
 #[serde(rename_all = "camelCase")]
 pub struct SessionSnapshot {
     pub phase: TpuPhase,
+    pub model: Option<ModelId>,
     pub kaggle_status: Option<String>,
     pub kernel: Option<String>,
     pub endpoint: Option<String>,
@@ -41,6 +44,7 @@ pub struct SessionSnapshot {
     pub text_only: Option<bool>,
     pub has_api_key: bool,
     pub pi_status: PiState,
+    pub pi_sync_supported: bool,
     pub ntfy_reachable: bool,
     pub activity: Vec<ActivityNote>,
     pub error: Option<String>,
@@ -119,6 +123,8 @@ impl AppState {
         let st = self.settings.lock().unwrap();
         let key = self.api_key.lock().unwrap();
         let last_status = *self.last_kaggle_status.lock().unwrap();
+        let effective_model = m.model.unwrap_or(st.model);
+        let profile_matches = m.model.is_none() || m.model == Some(st.model);
         let pi = if self.pi_sync_error.lock().unwrap().is_some() {
             crate::pi::PiState::SyncFailed
         } else {
@@ -126,6 +132,7 @@ impl AppState {
         };
         SessionSnapshot {
             phase: m.phase,
+            model: Some(effective_model),
             kaggle_status: last_status.map(|s| format!("{s:?}").to_lowercase()),
             kernel: m.kernel.clone(),
             endpoint: m.endpoint.clone(),
@@ -141,11 +148,16 @@ impl AppState {
             remaining_secs: m.remaining_secs(now),
             remaining_estimated: m.remaining_is_estimated(),
             decode_tok_s: m.decode_tok_s,
-            max_model_len: m.max_model_len,
-            mtp_tokens: m.mtp_tokens.or(Some(st.mtp)),
-            text_only: m.text_only.or(Some(st.text_only)),
+            max_model_len: m.max_model_len.or_else(|| profile_matches.then(|| st.selected_context())),
+            mtp_tokens: if effective_model == ModelId::Qwen38_27b {
+                m.mtp_tokens.or_else(|| profile_matches.then(|| st.qwen.mtp))
+            } else {
+                None
+            },
+            text_only: m.text_only.or_else(|| profile_matches.then(|| st.selected_text_only())),
             has_api_key: key.is_some(),
             pi_status: pi,
+            pi_sync_supported: effective_model == ModelId::Qwen38_27b,
             ntfy_reachable: m.ntfy_reachable,
             activity: m.activity.clone(),
             error: m.error.clone(),

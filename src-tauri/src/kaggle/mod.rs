@@ -136,7 +136,7 @@ pub fn tick_state(st: &AppState) -> SessionSnapshot {
                 if m.kernel.as_deref() != Some(l.kernel.as_str()) {
                     // Boot/reattach path: never fabricate a submission.
                     // Only a real push (do_start_state) may claim Queued.
-                    m.reattach(&l.kernel, Some(l.topic.clone()));
+                    m.reattach_model(&l.kernel, Some(l.topic.clone()), l.model);
                     m.push_note(now, "Reattached to existing session", NoteKind::Info);
                 }
             }
@@ -293,7 +293,7 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
             {
                 let mut m = st.machine.lock().unwrap();
                 if m.kernel.as_deref() != Some(l.kernel.as_str()) {
-                    m.reset_for_kernel(&l.kernel, Some(l.topic.clone()));
+                    m.reset_for_kernel_model(&l.kernel, Some(l.topic.clone()), l.model);
                     m.push_note(
                         now,
                         "Reattached to existing session",
@@ -338,7 +338,7 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
                 let _ = child.kill();
                 {
                     let mut m = st.machine.lock().unwrap();
-                    m.reset_for_kernel(&l.kernel, Some(l.topic.clone()));
+                    m.reset_for_kernel_model(&l.kernel, Some(l.topic.clone()), l.model);
                     m.push_note(now, "Kernel submitted", NoteKind::Info);
                 }
                 {
@@ -420,14 +420,18 @@ pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
 
 /// Pi sync with full rollback.
 pub fn sync_pi_state(st: &AppState) -> Result<String, String> {
-    let (endpoint, context) = {
+    let (endpoint, context, model) = {
         let m = st.machine.lock().unwrap();
+        let settings = st.settings.lock().unwrap();
         (
             m.endpoint.clone().filter(|_| m.endpoint_live),
-            m.max_model_len
-                .unwrap_or_else(|| st.settings.lock().unwrap().context),
+            m.max_model_len.unwrap_or(settings.qwen.context),
+            m.model.unwrap_or(settings.model),
         )
     };
+    if model != crate::state::model::ModelId::Qwen38_27b {
+        return Err("Pi sync for GLM is not enabled yet".into());
+    }
     let endpoint = endpoint
         .ok_or_else(|| "No live endpoint to sync yet — sync when the TPU is READY".to_string())?;
     let key = st.api_key.lock().unwrap().clone().ok_or_else(|| {

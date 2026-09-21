@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use crate::process;
 use crate::state::machine::KaggleStatus;
-use crate::state::settings::COMPANION_MODEL;
+use crate::state::model::ModelId;
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(45);
 const STOP_TIMEOUT: Duration = Duration::from_secs(240);
@@ -31,6 +31,7 @@ pub struct Launcher {
 pub struct LocalState {
     pub kernel: String,
     pub topic: String,
+    pub model: ModelId,
     /// Presence only is exposed to the UI; the value stays in Rust memory.
     pub has_api_key: bool,
 }
@@ -41,9 +42,7 @@ impl LocalState {
     pub fn read(path: &Path) -> Option<LocalState> {
         let text = std::fs::read_to_string(path).ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-        if !is_companion_model(&v) {
-            return None;
-        }
+        let model = state_model(&v)?;
         let kernel = v.get("kernel")?.as_str()?.to_string();
         if kernel.is_empty() {
             return None;
@@ -61,6 +60,7 @@ impl LocalState {
         Some(LocalState {
             kernel,
             topic,
+            model,
             has_api_key,
         })
     }
@@ -69,9 +69,7 @@ impl LocalState {
     pub fn raw_api_key(path: &Path) -> Option<String> {
         let text = std::fs::read_to_string(path).ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-        if !is_companion_model(&v) {
-            return None;
-        }
+        state_model(&v)?;
         v.get("api_key")
             .and_then(|k| k.as_str())
             .filter(|k| !k.is_empty())
@@ -79,11 +77,11 @@ impl LocalState {
     }
 }
 
-fn is_companion_model(v: &serde_json::Value) -> bool {
+fn state_model(v: &serde_json::Value) -> Option<ModelId> {
     v.get("model")
         .and_then(|m| m.as_str())
-        .map(|m| m == COMPANION_MODEL)
-        .unwrap_or(true)
+        .map(ModelId::parse_cli_id)
+        .unwrap_or(Some(ModelId::Qwen38_27b))
 }
 
 impl Launcher {
@@ -249,6 +247,7 @@ mod tests {
         let st = LocalState::read(&path).expect("state");
         assert_eq!(st.kernel, "u/k");
         assert_eq!(st.topic, "ktl-abc");
+        assert_eq!(st.model, ModelId::Qwen38_27b);
         assert!(st.has_api_key);
         assert_eq!(LocalState::raw_api_key(&path).as_deref(), Some("sk-SECRET"));
 
@@ -258,12 +257,26 @@ mod tests {
     }
 
     #[test]
-    fn local_state_rejects_non_qwen_sessions() {
+    fn local_state_accepts_glm_sessions() {
         let dir = tempfile_dir();
         let path = dir.join("glm-state.json");
         std::fs::write(
             &path,
             r#"{"kernel":"u/glm","topic":"ktl-abc","api_key":"glm-SECRET","model":"glm53-flash"}"#,
+        )
+        .unwrap();
+        let st = LocalState::read(&path).expect("glm state");
+        assert_eq!(st.model, ModelId::Glm53Flash);
+        assert_eq!(LocalState::raw_api_key(&path).as_deref(), Some("glm-SECRET"));
+    }
+
+    #[test]
+    fn local_state_rejects_unknown_models() {
+        let dir = tempfile_dir();
+        let path = dir.join("unknown-state.json");
+        std::fs::write(
+            &path,
+            r#"{"kernel":"u/x","topic":"ktl-abc","api_key":"secret","model":"future-model"}"#,
         )
         .unwrap();
         assert!(LocalState::read(&path).is_none());

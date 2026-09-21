@@ -151,6 +151,7 @@ export default function App() {
             <StatusHero
               phase={snapshot.phase}
               kernel={snapshot.kernel}
+              model={snapshot.model}
               error={snapshot.error}
             />
             <Metrics snap={snapshot} />

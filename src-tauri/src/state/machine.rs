@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::state::model::ModelId;
+
 /// Explicit phase set. No free-form strings in the UI.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +166,7 @@ pub struct MachineState {
     pub phase: TpuPhase,
     pub kernel: Option<String>,
     pub topic: Option<String>,
+    pub model: Option<ModelId>,
     /// Public endpoint (safe to display: it is not usable without the key).
     pub endpoint: Option<String>,
     /// False while the tunnel exists but vLLM is still booting.
@@ -198,9 +201,14 @@ pub struct MachineState {
 
 impl MachineState {
     pub fn reset_for_kernel(&mut self, kernel: &str, topic: Option<String>) {
+        self.reset_for_kernel_model(kernel, topic, ModelId::Qwen38_27b);
+    }
+
+    pub fn reset_for_kernel_model(&mut self, kernel: &str, topic: Option<String>, model: ModelId) {
         *self = MachineState {
             kernel: Some(kernel.to_string()),
             topic,
+            model: Some(model),
             phase: TpuPhase::Queued,
             ntfy_reachable: true,
             ..Default::default()
@@ -210,10 +218,11 @@ impl MachineState {
     /// Reattach to a kernel recorded in the local state file WITHOUT
     /// fabricating a submission: the phase stays Idle until a real push
     /// (do_start_state) or live reconciliation moves it forward.
-    pub fn reattach(&mut self, kernel: &str, topic: Option<String>) {
+    pub fn reattach_model(&mut self, kernel: &str, topic: Option<String>, model: ModelId) {
         *self = MachineState {
             kernel: Some(kernel.to_string()),
             topic,
+            model: Some(model),
             phase: TpuPhase::Idle,
             ntfy_reachable: true,
             ..Default::default()
@@ -299,6 +308,16 @@ impl MachineState {
                 }
             }
             "weights-downloaded" => self.push_note(ts, "Weights downloaded", NoteKind::Info),
+            "loading" => {
+                if self.at_least(TpuPhase::LoadingWeights) {
+                    self.push_note(ts, "Loading weights", NoteKind::Info);
+                }
+            }
+            "loaded" => {
+                if self.at_least(TpuPhase::Compiling) {
+                    self.push_note(ts, "Weights loaded", NoteKind::Info);
+                }
+            }
             "server-launch" => {
                 if self.at_least(TpuPhase::Compiling) {
                     self.push_note(ts, "Starting vLLM", NoteKind::Info);
@@ -314,15 +333,21 @@ impl MachineState {
                 }
             }
             "tunnel-url" => {
-                // Reserved endpoint: set while the server is still booting.
-                // Once READY has been announced, the ready endpoint is the
-                // source of truth and must not be replaced.
-                if !self.endpoint_live {
-                    if let Some(e) = f("endpoint").and_then(|v| v.as_str()) {
-                        if !e.is_empty() && self.endpoint.as_deref() != Some(e) {
-                            self.endpoint = Some(e.to_string());
-                            self.push_note(ts, "Endpoint reserved", NoteKind::Info);
-                        }
+                // Qwen reserves one URL before READY. GLM can rotate a tunnel
+                // after READY when the first hostname never becomes reachable.
+                if let Some(e) = f("endpoint").and_then(|v| v.as_str()) {
+                    let allow_rotation = self.model == Some(ModelId::Glm53Flash);
+                    if !e.is_empty()
+                        && self.endpoint.as_deref() != Some(e)
+                        && (!self.endpoint_live || allow_rotation)
+                    {
+                        self.endpoint = Some(e.to_string());
+                        self.probe_fails = 0;
+                        self.push_note(
+                            ts,
+                            if self.endpoint_live { "Endpoint rotated" } else { "Endpoint reserved" },
+                            NoteKind::Info,
+                        );
                     }
                 }
             }
@@ -337,6 +362,11 @@ impl MachineState {
                     self.serving_from = Some(ts);
                     self.serving_from_estimated = false;
                     self.push_note(ts, "Server healthy", NoteKind::Success);
+                }
+            }
+            "warmed" => {
+                if self.at_least(TpuPhase::Healthy) {
+                    self.push_note(ts, "Engine warmed", NoteKind::Success);
                 }
             }
             "ready" => {
@@ -765,6 +795,38 @@ mod tests {
         ));
         m.reconcile(KaggleStatus::Unknown, 2_000);
         assert_eq!(m.phase, TpuPhase::Ready);
+    }
+
+    #[test]
+    fn glm_tunnel_can_rotate_after_ready() {
+        let mut m = MachineState::default();
+        m.reset_for_kernel_model("u/glm", None, ModelId::Glm53Flash);
+        m.apply_event(&ev(
+            100,
+            "ready",
+            j(serde_json::json!({"endpoint": "https://old.trycloudflare.com", "keepalive_min": 480})),
+        ));
+        m.apply_event(&ev(
+            120,
+            "tunnel-url",
+            j(serde_json::json!({"endpoint": "https://new.trycloudflare.com"})),
+        ));
+        assert_eq!(m.phase, TpuPhase::Ready);
+        assert_eq!(m.endpoint.as_deref(), Some("https://new.trycloudflare.com"));
+        assert!(m.endpoint_live);
+        assert!(m.activity.iter().any(|n| n.text == "Endpoint rotated"));
+    }
+
+    #[test]
+    fn glm_lifecycle_maps_into_existing_phases() {
+        let mut m = MachineState::default();
+        m.reset_for_kernel_model("u/glm", None, ModelId::Glm53Flash);
+        m.apply_event(&ev(100, "loading", j(serde_json::json!({"note": "weights"}))));
+        assert_eq!(m.phase, TpuPhase::LoadingWeights);
+        m.apply_event(&ev(200, "loaded", j(serde_json::json!({"hbm_gb": 15.4}))));
+        assert_eq!(m.phase, TpuPhase::Compiling);
+        m.apply_event(&ev(300, "warmed", j(serde_json::json!({"minutes": 9.0}))));
+        assert_eq!(m.phase, TpuPhase::Healthy);
     }
 
     #[test]

@@ -58,13 +58,18 @@ and `stop` do what they say.
 
 This fork includes a Tauri 2 + Rust + React/TypeScript tray app in `src-tauri/` and
 `src/`. It reuses the root `launch.py`, follows Kaggle + ntfy state, probes the live
-endpoint, exposes start/stop/settings from the tray UI, and can synchronize the live
-endpoint into the local Pi provider configuration with backup/validation/rollback.
+endpoint, and exposes start/stop/settings from the tray UI.
 
-The companion currently manages **Qwen3.8-27B only**. Companion launches explicitly
-pass `--model qwen38-27b`, while the CLI remains fully multi-model and can launch GLM
-independently. Sessions written by the current launcher include their model identity so
-the Qwen companion will not attach a GLM endpoint as if it were Qwen.
+The companion manages both **Qwen3.8-27B** and **GLM-5.3-Flash**. Each model has its own
+persisted launch profile: Qwen exposes its context/MTP/fast-start/async-scheduling knobs,
+while GLM exposes context/streams/reasoning and uses the launcher's serve-dataset default.
+The active model is stored in the launcher state file, so re-attaching never mistakes one
+model's endpoint for the other. Qwen publishes an OpenAI `/v1` base directly; GLM publishes
+the tunnel root, and the companion normalizes it when probing the OpenAI `/v1/models` route.
+
+Pi synchronization is still **Qwen-only** in the companion. A GLM session can be launched,
+monitored and stopped normally, but the Pi sync control stays disabled for it until a
+model-aware Pi profile is added.
 
 For the desktop app, keep this repository checkout and its `.venv` available on the
 machine; the app invokes that Python environment and `launch.py` rather than bundling a

@@ -14,6 +14,16 @@ pub struct HttpProbe {
     pub agent: ureq::Agent,
 }
 
+fn models_url(endpoint: &str) -> String {
+    let root = endpoint.trim_end_matches('/');
+    let base = if root.ends_with("/v1") {
+        root.to_string()
+    } else {
+        format!("{root}/v1")
+    };
+    format!("{base}/models")
+}
+
 impl Default for HttpProbe {
     fn default() -> Self {
         Self {
@@ -24,8 +34,7 @@ impl Default for HttpProbe {
 
 impl EndpointProbe for HttpProbe {
     fn probe(&self, endpoint: &str, api_key: &str) -> bool {
-        let url = endpoint.trim_end_matches('/');
-        let url = format!("{url}/models");
+        let url = models_url(endpoint);
         // NOTE: never log `url` failures with headers; redact everything.
         let res = self.agent
             .get(&url)
@@ -56,5 +65,12 @@ mod tests {
     fn probe_fake() {
         assert!(Fake { ok: true }.probe("https://x/v1", "sk-abc"));
         assert!(!Fake { ok: false }.probe("https://x/v1", "sk-abc"));
+    }
+
+    #[test]
+    fn normalizes_qwen_and_glm_endpoint_shapes() {
+        assert_eq!(models_url("https://qwen.example/v1"), "https://qwen.example/v1/models");
+        assert_eq!(models_url("https://glm.example"), "https://glm.example/v1/models");
+        assert_eq!(models_url("https://glm.example/"), "https://glm.example/v1/models");
     }
 }

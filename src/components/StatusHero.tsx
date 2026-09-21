@@ -1,4 +1,4 @@
-import type { TpuPhase } from "../types/session";
+import { MODEL_LABELS, type ModelId, type TpuPhase } from "../types/session";
 import { WarningCircle } from "@phosphor-icons/react";
 
 export interface PhaseMeta {
@@ -25,10 +25,11 @@ export const PHASE_META: Record<TpuPhase, PhaseMeta> = {
 interface Props {
   phase: TpuPhase;
   kernel: string | null;
+  model: ModelId | null;
   error: string | null;
 }
 
-export default function StatusHero({ phase, kernel, error }: Props) {
+export default function StatusHero({ phase, kernel, model, error }: Props) {
   const meta = PHASE_META[phase];
   return (
     <section className={`hero tone-${meta.tone}`} aria-live="polite">
@@ -38,7 +39,7 @@ export default function StatusHero({ phase, kernel, error }: Props) {
       </div>
       <p className="hero-sub">
         {kernel ?? "No active session"}
-        {kernel ? " · Qwen3.8-27B on TPU" : ""}
+        {kernel && model ? ` · ${MODEL_LABELS[model]} on TPU` : ""}
       </p>
       {error && (
         <div className="hero-error" role="alert">

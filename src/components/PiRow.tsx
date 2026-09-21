@@ -15,19 +15,20 @@ export default function PiRow() {
   const st: PiState = snapshot?.piStatus ?? "notConfigured";
   const meta = PI_META[st];
   const syncing = busy === "sync";
+  const supported = snapshot?.piSyncSupported ?? true;
 
   return (
     <section className="card pi-card" aria-label="Pi provider sync">
       <div className="card-head">
         <span className="card-title">PI PROVIDER</span>
         <div className="pi-head-actions">
-          <span className={`badge tone-${meta.tone}`}>
-            {meta.icon}
-            {meta.label}
+          <span className={`badge tone-${supported ? meta.tone : "gray"}`}>
+            {supported ? meta.icon : <X size={12} aria-hidden />}
+            {supported ? meta.label : "QWEN ONLY"}
           </span>
           <button
             className="icon-btn"
-            disabled={syncing || st === "notConfigured"}
+            disabled={!supported || syncing || st === "notConfigured"}
             onClick={() => void actions.syncPi()}
             title={syncing ? "Syncing…" : st === "syncFailed" ? "Retry Pi sync" : "Sync Pi provider"}
             aria-label={syncing ? "Syncing…" : st === "syncFailed" ? "Retry Pi sync" : "Sync Pi provider"}
@@ -37,10 +38,11 @@ export default function PiRow() {
         </div>
       </div>
       <p className="pi-hint">
-        {st === "synced" && "kaggle-tpu points at the live endpoint."}
-        {st === "stale" && "kaggle-tpu points at a different endpoint."}
-        {st === "syncFailed" && "Last sync failed — files were rolled back."}
-        {st === "notConfigured" && "Pi config not found on this machine."}
+        {!supported && "Pi sync for GLM is not enabled yet."}
+        {supported && st === "synced" && "kaggle-tpu points at the live endpoint."}
+        {supported && st === "stale" && "kaggle-tpu points at a different endpoint."}
+        {supported && st === "syncFailed" && "Last sync failed — files were rolled back."}
+        {supported && st === "notConfigured" && "Pi config not found on this machine."}
       </p>
     </section>
   );
