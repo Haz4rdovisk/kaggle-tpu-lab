@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub const COMPANION_MODEL: &str = "qwen38-27b";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -74,6 +76,8 @@ impl Settings {
     /// `--no-tools` flag, ever).
     pub fn serve_args(&self) -> Vec<String> {
         let mut args = vec![
+            "--model".into(),
+            COMPANION_MODEL.into(),
             "--max-model-len".into(),
             self.context.to_string(),
             "--mtp".into(),
@@ -142,6 +146,7 @@ mod tests {
         let args = Settings::default().serve_args();
         let joined = args.join(" ");
         assert!(args.first().is_some());
+        assert!(joined.contains("--model qwen38-27b"));
         assert!(joined.contains("--max-model-len 262144"));
         assert!(joined.contains("--mtp 3"));
         assert!(joined.contains("--reasoning-effort xhigh"));

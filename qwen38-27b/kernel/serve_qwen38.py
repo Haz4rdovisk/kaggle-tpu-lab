@@ -52,6 +52,10 @@ DEFAULTS = {
                                    # rollback); we apply patches/mtp-rollback-v0280.diff
                                    # (a port of upstream PR #3178) before serving —
                                    # verified lossless, 12/12 greedy exact-match.
+    "async_scheduling": None,      # None = vLLM's default (on). false passes --no-async-scheduling: needed by
+                                   # clients that use JSON mode / structured outputs while MTP is on (vllm-tpu
+                                   # 0.28.0 hands the scheduler device arrays on that path -> "AttributeError:
+                                   # __delitem__" and the server exits); costs some throughput
     "reasoning_effort_default": "xhigh",   # server-side default: xhigh | medium | low
     "tool_call_parser": "qwen3_coder",  # matches Qwen3.8's XML tool format; "" disables
     "text_only": False,            # True: skip the vision tower + its TPU graphs (saves ~8 min,
@@ -235,8 +239,94 @@ def install_runtime(built=None):
     return "pip" if rc == 0 else None
 
 
+def tpu_check():
+    """Kaggle sometimes starts a "TPU" session with no TPU attached (a CPU-only container; most often on new or
+    not-yet-verified accounts). jax then sees one device and vLLM dies minutes later with "Insufficient devices for
+    2D mesh: found 1, expected 8" or "No jellyfish device found". Look before installing anything (~20 s)."""
+    code = ("import jax\n"
+            "try:\n"
+            "    d = jax.devices()\n"
+            "    print('TPU_CHECK', len(d), d[0].platform, getattr(d[0], 'device_kind', ''))\n"
+            "except Exception as e:\n"
+            "    print('TPU_CHECK 0 none', str(e).replace(chr(10), ' ')[:200])\n")
+    try:
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=180)
+        out = (r.stdout or "") + (r.stderr or "")
+        m = re.search(r"TPU_CHECK (\d+) (\S+)(.*)", out)
+    except Exception as e:  # noqa: BLE001
+        log(f"   (TPU check skipped: {e})")
+        return
+    if m is None:
+        log("   (TPU check skipped: the image's jax did not answer; details in vllm.log)")
+        _raw.write("[tpu-check] " + out.replace("\n", "\n[tpu-check] ") + "\n")
+        return
+    n, platform, rest = int(m.group(1)), m.group(2), m.group(3).strip()
+    if n == 8 and platform == "tpu":
+        log(f"   TPU check OK: 8 chips ({rest})")
+        return
+    if n == 0 and not re.search(r"jellyfish|TPU initialization failed|initialize backend 'tpu'|No TPU|vfio", rest, re.I):
+        log(f"   (TPU check inconclusive, continuing: {rest[:160]})")   # only a clear no-TPU signal stops the run
+        return
+    msg = (f"this session has no working TPU: jax sees {n} {platform} device(s) {rest}. Kaggle sometimes starts a "
+           "TPU session without one (most often on new or not-yet-verified accounts); nothing in this notebook can "
+           "fix that. Stop the session and start it again. If it repeats, run `import jax; print(jax.device_count())` "
+           "in a fresh cell first: it must print 8 before this script is worth running.")
+    log("   " + msg)
+    publish("failed", step="no-tpu", tail=msg)
+    sys.exit(1)
+
+
+def server_death_report(max_lines=60):
+    """What killed vLLM, from vllm.log: the root-cause exception line, the first error block and a hint for the
+    causes we have seen. The console tail alone scrolls the cause away. Returns (cause, block, hint)."""
+    try:
+        lines = [l for l in RAW_LOG.read_text(errors="replace").splitlines() if l.startswith("[vllm]")]
+    except Exception:  # noqa: BLE001
+        return "", "", ""
+    strip = re.compile(r"^\[vllm\] (?:\((?:EngineCore|APIServer|Worker)[^)]*\) )?(?:ERROR|CRITICAL) [\d-]+ [\d:]+ \[[^\]]+\] ?")
+    start_pat = re.compile(r"EngineCore (?:failed|encountered|hit)|Traceback \(most recent call last\)|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|NOT_FOUND")
+    start = next((i for i, l in enumerate(lines) if start_pat.search(l)), None)
+    block = [strip.sub("", l) for l in lines[start:start + max_lines]] if start is not None else []
+    cause = ""
+    for l in block:                                   # the first traceback's own exception line is the root cause
+        t = l.strip()
+        if re.match(r"^[\w.]*(?:Error|Exception)\b.*:", t) or re.match(r"^(?:INVALID_ARGUMENT|NOT_FOUND|RESOURCE_EXHAUSTED)", t):
+            cause = t
+            break
+    joined = "\n".join(block)
+    hint = ""
+    if re.search(r"found 1, expected 8|jellyfish|unexpected worker hostname|TPU initialization failed", joined):
+        hint = ("this session has no working TPU (Kaggle sometimes starts one without, most often on new or "
+                "not-yet-verified accounts): stop the session and start it again")
+    elif "__delitem__" in joined:
+        hint = ("a client sent a JSON-mode / structured-output request while MTP and async scheduling are on, which "
+                "vllm-tpu 0.28.0 cannot handle: set \"async_scheduling\": false (or \"mtp_tokens\": 0) and run again")
+    elif "RESOURCE_EXHAUSTED" in joined or "out of memory" in joined.lower():
+        hint = "the TPU ran out of HBM: lower max_model_len or max_num_seqs"
+    return cause, joined, hint
+
+
+def server_died(server, phase, **extra):
+    """Log why the vLLM server exited (root cause first), publish it, and stop the kernel."""
+    cause, block, hint = server_death_report()
+    tail = "\n".join(list(server.tail)[-40:]) if getattr(server, "tail", None) else ""
+    log(f"server exited rc={server.returncode}" + (f" — root cause: {cause}" if cause else ""))
+    if hint:
+        log(f"   -> {hint}")
+    if block:
+        log("--- first error block from vllm.log ---\n" + block)
+    if tail and not block:
+        log("--- last output ---\n" + tail)
+    log(f"full log: {RAW_LOG}")
+    head = (f"root cause: {cause}\n" if cause else "") + (f"{hint}\n" if hint else "")
+    publish(phase, rc=server.returncode, cause=cause, hint=hint,
+            tail=(head + "\n" + (block or tail)[-2200:]).strip(), **extra)
+    sys.exit(1)
+
+
 # ---------------- 1. runtime ----------------
 banner(1, "Python runtime", f"vllm-tpu {CFG['vllm_tpu_version']}")
+tpu_check()
 threading.Thread(target=fetch_cloudflared, daemon=True).start()
 bundle_root = find_input(CFG["env_dataset"].split("/")[-1], "qwen38-tpu-env*")
 bundle, manifest = None, {}
@@ -302,12 +392,12 @@ if n_entries:
 else:
     publish("cache-missing", note="cold compile: expect ~10 extra minutes")
 
+
 def complete_bf16_repo(path):
     """Validate a mounted bf16 weights mirror. Returns (ok, detail).
 
-    STRICT rejection: missing/invalid model.safetensors.index.json or a
-    missing shard file. The HF size cross-check is best-effort (skipped when
-    the API is unreachable); a missing MTP tensor name is a log warning only.
+    Strictly reject an invalid/missing safetensors index or missing shards.
+    The Hugging Face size cross-check is best-effort when the API is reachable.
     """
     idx = os.path.join(path, "model.safetensors.index.json")
     try:
@@ -386,6 +476,8 @@ def server_args(cfg):
             "--api-key", cfg["api_key"],
             "--served-model-name", cfg["served_model_name"],
             "--reasoning-parser", "qwen3"]
+    if cfg.get("async_scheduling") is not None:
+        args.append("--async-scheduling" if cfg["async_scheduling"] else "--no-async-scheduling")
     if cfg["text_only"]:
         # Qwen3.8 is a vision-language checkpoint; we only serve text. This skips
         # the vision tower and roughly halves the number of TPU graphs to compile.
@@ -518,11 +610,7 @@ def wait_healthy(server, cfg, expect_min):
     t = time.time()
     while time.time() - t < 5400:
         if server.poll() is not None:
-            tail = "\n".join(list(server.tail)[-100:])
-            log(f"server exited rc={server.returncode}; last output:\n{tail}")
-            log(f"full log: {RAW_LOG}")
-            publish("failed", step="server", rc=server.returncode, tail=tail[-2500:])
-            sys.exit(1)
+            server_died(server, "failed", step="server")
         if healthy(cfg):
             return int(time.time() - t)
         el = int(time.time() - t)
@@ -829,8 +917,7 @@ t_serve = time.time()
 while time.time() - t_serve < CFG["keepalive_min"] * 60:
     time.sleep(120)
     if server.poll() is not None:
-        publish("stopped", reason="server-exit", rc=server.returncode)
-        sys.exit(1)
+        server_died(server, "stopped", reason="server-exit")
     up = int((time.time() - t_serve) / 60)
     if up % 10 < 2:
         publish("heartbeat", up_min=up, endpoint=(f"{url}/v1" if url else None))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Re-embed patches/mtp-rollback-v0280.diff into kernel/serve_qwen38.py.
+"""Re-embed patches/mtp-rollback-v0280.diff into kernel/serve_qwen38.py (paths relative to this model folder).
 
-Run after editing the patch file:  python tools/embed_patch.py
+Run after editing the patch file:  python qwen38-27b/tools/embed_patch.py
 """
 import base64
 import gzip
