@@ -119,6 +119,7 @@ pub mod testutil {
 const PROBE_WHILE_UNKNOWN_EVERY: i64 = 120; // s
 const PROBE_WHILE_READY_EVERY: i64 = 300; // s
 const MAX_PROBE_FAILS: u32 = 3;
+const STALE_UNVERIFIED_STATE_SECS: i64 = 24 * 60 * 60;
 
 /// One polling iteration over the raw state (no Tauri side effects):
 /// state file -> Kaggle status -> ntfy events -> reconcile -> probe.
@@ -188,6 +189,50 @@ pub fn tick_state(st: &AppState) -> SessionSnapshot {
                     m.ntfy_reachable = false;
                 }
             }
+        }
+    }
+
+    // A private-kernel API bug can leave a successful-looking local push
+    // permanently unverifiable. Only discard it when it is very old, ntfy is
+    // reachable, and there is no launcher evidence at all. This is a safety
+    // valve, not a normal lifecycle transition.
+    let expire_unverified = if kstatus == KaggleStatus::Unavailable {
+        match &local {
+            Some(l) => {
+                let m = st.machine.lock().unwrap();
+                m.events_applied
+                    && m.ntfy_reachable
+                    && m.last_event_ts == 0
+                    && m.endpoint.is_none()
+                    && l
+                        .age_secs(&st.state_file, now)
+                        .map(|age| age >= STALE_UNVERIFIED_STATE_SECS)
+                        .unwrap_or(false)
+            }
+            None => false,
+        }
+    } else {
+        false
+    };
+    if expire_unverified {
+        let same_state = local.as_ref().is_some_and(|old| {
+            LocalState::read(&st.state_file)
+                .map(|cur| cur.kernel == old.kernel && cur.topic == old.topic)
+                .unwrap_or(false)
+        });
+        if same_state {
+            let _ = std::fs::remove_file(&st.state_file);
+            *st.api_key.lock().unwrap() = None;
+            *st.last_kaggle_status.lock().unwrap() = None;
+            let mut m = st.machine.lock().unwrap();
+            *m = MachineState::default();
+            m.push_note(
+                now,
+                "Discarded stale unverified local session state",
+                NoteKind::Warn,
+            );
+            drop(m);
+            return st.snapshot(now);
         }
     }
 
@@ -379,8 +424,9 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
     outcome
 }
 
-/// Official stop through `launch.py stop`. The state file is left in place;
-/// the next tick reconciles the kernel-removed status.
+/// Official stop through launch.py. A successful stop removes the launcher
+/// state file and resets the in-memory session immediately so a subsequent
+/// Start cannot reattach to a dead kernel.
 pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
     let previous_phase = st.machine.lock().unwrap().phase;
     let can_stop = previous_phase.can_stop();
@@ -405,21 +451,23 @@ pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
 
     let stop_result = st.launcher.stop();
     st.stopping.store(false, Ordering::SeqCst);
-    {
-        let mut m = st.machine.lock().unwrap();
-        match &stop_result {
-            Ok(_out) => {
-                m.phase = TpuPhase::Stopped;
-                m.terminal = Some("stopped-by-user".into());
-                m.endpoint_live = false;
-                m.push_note(now_secs(), "TPU session stopped", NoteKind::Info);
-            }
-            Err(msg) => {
-                // Restore the exact phase from before the Stop attempt.
-                m.phase = previous_phase;
-                m.error = Some(crate::security::redact_for_log(msg));
-                m.push_note(now_secs(), "Stop failed", NoteKind::Error);
-            }
+    match &stop_result {
+        Ok(_out) => {
+            // launch.py already removes the file; keep this defensive cleanup
+            // so a future launcher change cannot resurrect a stopped session.
+            let _ = std::fs::remove_file(&st.state_file);
+            *st.api_key.lock().unwrap() = None;
+            *st.last_kaggle_status.lock().unwrap() = None;
+            let mut m = st.machine.lock().unwrap();
+            *m = MachineState::default();
+            m.push_note(now_secs(), "TPU session stopped", NoteKind::Info);
+        }
+        Err(msg) => {
+            let mut m = st.machine.lock().unwrap();
+            // Restore the exact phase from before the Stop attempt.
+            m.phase = previous_phase;
+            m.error = Some(crate::security::redact_for_log(msg));
+            m.push_note(now_secs(), "Stop failed", NoteKind::Error);
         }
     }
     let snap = st.snapshot(now_secs());
@@ -826,6 +874,72 @@ mod tests {
     }
 
     #[test]
+    fn stale_unverified_state_is_discarded_when_ntfy_confirms_no_activity() {
+        let stale = serde_json::json!({
+            "kernel": "u/k",
+            "topic": "ktl-topic",
+            "api_key": "sk-testkey",
+            "model": "glm53-flash",
+            "submitted_at": 1
+        });
+        let (st, state_file) = make_state(
+            FakeKaggleApi::unavailable(),
+            FakeEvents::new(vec![], false),
+            FakeProbe { ok: false },
+            Some(stale),
+        );
+        let snap = tick_state(&st);
+        assert_eq!(snap.phase, TpuPhase::Idle);
+        assert_eq!(snap.kernel, None);
+        assert!(!snap.has_api_key);
+        assert!(!state_file.exists());
+        assert!(snap
+            .activity
+            .iter()
+            .any(|n| n.text.contains("Discarded stale unverified")));
+    }
+
+    #[test]
+    fn recent_unverified_state_is_preserved() {
+        let recent = serde_json::json!({
+            "kernel": "u/k",
+            "topic": "ktl-topic",
+            "api_key": "sk-testkey",
+            "model": "glm53-flash",
+            "submitted_at": now_secs()
+        });
+        let (st, state_file) = make_state(
+            FakeKaggleApi::unavailable(),
+            FakeEvents::new(vec![], false),
+            FakeProbe { ok: false },
+            Some(recent),
+        );
+        let snap = tick_state(&st);
+        assert_eq!(snap.phase, TpuPhase::Verifying);
+        assert!(state_file.exists());
+    }
+
+    #[test]
+    fn stale_unverified_state_is_preserved_if_ntfy_is_unreachable() {
+        let stale = serde_json::json!({
+            "kernel": "u/k",
+            "topic": "ktl-topic",
+            "api_key": "sk-testkey",
+            "model": "glm53-flash",
+            "submitted_at": 1
+        });
+        let (st, state_file) = make_state(
+            FakeKaggleApi::unavailable(),
+            FakeEvents::new(vec![], true),
+            FakeProbe { ok: false },
+            Some(stale),
+        );
+        let snap = tick_state(&st);
+        assert_eq!(snap.phase, TpuPhase::Verifying);
+        assert!(state_file.exists());
+    }
+
+    #[test]
     fn stop_requires_active_session() {
         let (st, _) = make_state(
             FakeKaggleApi::not_found(),
@@ -887,8 +1001,73 @@ mod tests {
         );
         tick_state(&st); // Ready
         let snap = stop_state(&st).expect("stop must succeed");
-        assert_eq!(snap.phase, TpuPhase::Stopped);
+        assert_eq!(snap.phase, TpuPhase::Idle);
+        assert_eq!(snap.kernel, None);
+        assert!(!snap.has_api_key);
+        assert!(snap.phase.can_start());
+        assert!(!st.state_file.exists(), "successful stop must clear launcher state");
         assert!(marker.exists(), "launch.py stop was not invoked");
+
+        st.settings.lock().unwrap().model = crate::state::model::ModelId::Glm53Flash;
+        let after_model_switch = st.snapshot(now_secs());
+        assert_eq!(after_model_switch.model, Some(crate::state::model::ModelId::Glm53Flash));
+        assert!(after_model_switch.phase.can_start());
+        assert_eq!(after_model_switch.kernel, None);
+    }
+
+    #[test]
+    fn failed_stop_preserves_session_and_state_file() {
+        let candidates = [
+            PathBuf::from(r"C:\Users\Pc_Lu\.Dev-projects\kaggle-tpu-lab\.venv\Scripts\python.exe"),
+            PathBuf::from("python3"),
+            PathBuf::from("python"),
+        ];
+        let Some(python) = candidates.iter().find(|p| p.exists()) else {
+            eprintln!("skip: no python interpreter found");
+            return;
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "ktl-stop-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("launch.py"),
+            "import sys\nprint('delete failed')\nsys.exit(1)\n",
+        )
+        .unwrap();
+
+        let state_file = dir.join("state.json");
+        std::fs::write(
+            &state_file,
+            serde_json::to_string(&state_val("u/k", "ktl-topic", "sk-x")).unwrap(),
+        )
+        .unwrap();
+        let st = AppState::new(
+            launcher::Launcher {
+                python: python.clone(),
+                project_root: dir,
+            },
+            state_file.clone(),
+            Box::new(FakeKaggleApi::running()),
+            Box::new(FakeEvents::new(vec![ready_ev(2_000)], false)),
+            Box::new(FakeProbe { ok: true }),
+        );
+        let before = tick_state(&st);
+        assert_eq!(before.phase, TpuPhase::Ready);
+
+        let err = stop_state(&st).expect_err("failed launcher stop must surface");
+        assert!(err.contains("stop exited"));
+        assert!(state_file.exists(), "failed stop must preserve launcher state");
+        let after = st.snapshot(now_secs());
+        assert_eq!(after.phase, TpuPhase::Ready);
+        assert_eq!(after.kernel.as_deref(), Some("u/k"));
+        assert!(after.has_api_key);
     }
 
     #[test]

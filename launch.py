@@ -176,7 +176,7 @@ def cmd_serve(args):
             "kernel_type": "script",
             "is_private": "true",
             "enable_gpu": "false",
-            "enable_tpu": "true",
+            "machine_shape": "TpuV5E8",
             "enable_internet": "true",
             "dataset_sources": datasets,
             "competition_sources": [], "kernel_sources": [], "model_sources": [],
@@ -193,7 +193,8 @@ def cmd_serve(args):
 
     STATE_FILE.write_text(json.dumps(
         {"kernel": f"{user}/{slug}", "topic": topic, "api_key": api_key,
-         "model": args.model}))
+         "model": args.model, "submitted_at": int(time.time()),
+         "keepalive_min": args.keepalive_min}))
     say(f"Pushed. Kernel page: https://www.kaggle.com/code/{user}/{slug}")
     say("Kaggle takes a few minutes to provision the TPU and attach the "
         f"datasets; the endpoint is usually live ~{model['minutes']} min after the kernel starts.")
@@ -356,7 +357,7 @@ def cmd_build_env(args):
         (td / "kernel-metadata.json").write_text(json.dumps({
             "id": f"{user}/{args.slug}", "title": args.slug, "code_file": "build_env.py",
             "language": "python", "kernel_type": "script", "is_private": "true",
-            "enable_gpu": "false", "enable_tpu": "true", "enable_internet": "true",
+            "enable_gpu": "false", "machine_shape": "TpuV5E8", "enable_internet": "true",
             "dataset_sources": [args.weights_dataset],
             "competition_sources": [], "kernel_sources": [], "model_sources": [],
         }, indent=1))
@@ -365,7 +366,7 @@ def cmd_build_env(args):
         if r.returncode != 0 or "successfully pushed" not in out.lower():
             sys.exit(f"Push failed:\n{out.strip()}")
     STATE_FILE.write_text(json.dumps({"kernel": f"{user}/{args.slug}", "topic": topic,
-                                      "api_key": ""}))
+                                      "api_key": "", "submitted_at": int(time.time())}))
     say(f"Pushed {user}/{args.slug}. It serves each config once (~1.5 h total) and "
         "leaves xla_cache.tar / cloudflared / manifest.json in its output.")
     watch(f"{user}/{args.slug}", topic)
@@ -396,7 +397,12 @@ def cmd_stop(args):
     say(f"Deleting kernel {st['kernel']} (terminates the TPU session)...")
     p = subprocess.run([sys.executable, "-m", "kaggle", "kernels", "delete",
                         st["kernel"]], input="yes\n", capture_output=True, text=True)
-    say((p.stdout + p.stderr).strip() or "done")
+    out = (p.stdout + p.stderr).strip()
+    say(out or "done")
+    if p.returncode != 0:
+        sys.exit(f"Stop failed:\n{out or f'kaggle kernels delete exited {p.returncode}'}")
+    STATE_FILE.unlink(missing_ok=True)
+    say("Local session state cleared.")
 
 
 def main():
