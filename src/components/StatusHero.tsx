@@ -10,6 +10,7 @@ export interface PhaseMeta {
 
 export const PHASE_META: Record<TpuPhase, PhaseMeta> = {
   idle: { label: "IDLE", tone: "gray", pulse: false },
+  verifying: { label: "VERIFYING", tone: "amber", pulse: true },
   queued: { label: "QUEUED", tone: "amber", pulse: true },
   provisioning: { label: "PROVISIONING", tone: "blue", pulse: true },
   starting: { label: "STARTING", tone: "blue", pulse: true },

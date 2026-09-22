@@ -23,7 +23,7 @@ const TRAY_STOPPED: &[u8] = include_bytes!("../icons/tray_stopped.png");
 
 fn icon_for(phase: TpuPhase) -> Result<Image<'static>, String> {
     let bytes = match phase {
-        TpuPhase::Queued => TRAY_QUEUED,
+        TpuPhase::Verifying | TpuPhase::Queued => TRAY_QUEUED,
         TpuPhase::Provisioning
         | TpuPhase::Starting
         | TpuPhase::LoadingWeights
@@ -49,6 +49,7 @@ fn tooltip(snap: &SessionSnapshot) -> String {
             Some(secs) => format!("READY \u{b7} {} remaining", format_compact(secs)),
             None => "READY".to_string(),
         },
+        TpuPhase::Verifying => "VERIFYING KAGGLE".to_string(),
         TpuPhase::Queued => "WAITING FOR TPU".to_string(),
         TpuPhase::Provisioning
         | TpuPhase::Starting

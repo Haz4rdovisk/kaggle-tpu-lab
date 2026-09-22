@@ -5,6 +5,7 @@
 
 export type TpuPhase =
   | "idle"
+  | "verifying"
   | "queued"
   | "provisioning"
   | "starting"
@@ -90,6 +91,7 @@ export interface Settings {
 export const CAN_START: readonly TpuPhase[] = ["idle", "stopped", "failed"];
 /** Phases in which "Stop" is offered. */
 export const CAN_STOP: readonly TpuPhase[] = [
+  "verifying",
   "queued",
   "provisioning",
   "starting",

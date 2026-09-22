@@ -171,6 +171,8 @@ impl Launcher {
             Ok((_code, output)) => {
                 if let Some(st) = KaggleStatus::parse_kaggle_output(&output) {
                     st
+                } else if looks_unavailable(&output) {
+                    KaggleStatus::Unavailable
                 } else if looks_not_found(&output) {
                     KaggleStatus::NotFound
                 } else {
@@ -212,6 +214,11 @@ impl Launcher {
             Err(format!("launch.py stop exited {code}: {}", tail(&out)))
         }
     }
+}
+
+fn looks_unavailable(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    lower.contains("cannot access kernel") || lower.contains("kernels.get")
 }
 
 fn looks_not_found(output: &str) -> bool {
@@ -291,6 +298,13 @@ mod tests {
         let bad = dir.join("bad.json");
         std::fs::write(&bad, "not json").unwrap();
         assert!(LocalState::read(&bad).is_none());
+    }
+
+    #[test]
+    fn private_kernel_access_error_is_unavailable_not_missing() {
+        let out = "Cannot access kernel 'u/k' (kernels.get failed).";
+        assert!(looks_unavailable(out));
+        assert!(!looks_not_found(out));
     }
 
     fn tempfile_dir() -> PathBuf {

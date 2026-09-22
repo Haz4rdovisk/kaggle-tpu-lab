@@ -22,6 +22,7 @@ use crate::state::model::ModelId;
 pub enum TpuPhase {
     #[default]
     Idle,
+    Verifying,
     Queued,
     Provisioning,
     Starting,
@@ -39,23 +40,25 @@ impl TpuPhase {
     pub fn rank(self) -> u8 {
         match self {
             TpuPhase::Idle => 0,
-            TpuPhase::Queued => 1,
-            TpuPhase::Provisioning => 2,
-            TpuPhase::Starting => 3,
-            TpuPhase::LoadingWeights => 4,
-            TpuPhase::Compiling => 5,
-            TpuPhase::Healthy => 6,
-            TpuPhase::Ready => 7,
-            TpuPhase::Stopping => 8,
-            TpuPhase::Stopped => 8,
-            TpuPhase::Failed => 9,
+            TpuPhase::Verifying => 1,
+            TpuPhase::Queued => 2,
+            TpuPhase::Provisioning => 3,
+            TpuPhase::Starting => 4,
+            TpuPhase::LoadingWeights => 5,
+            TpuPhase::Compiling => 6,
+            TpuPhase::Healthy => 7,
+            TpuPhase::Ready => 8,
+            TpuPhase::Stopping => 9,
+            TpuPhase::Stopped => 9,
+            TpuPhase::Failed => 10,
         }
     }
 
     pub fn is_active(self) -> bool {
         matches!(
             self,
-            TpuPhase::Queued
+            TpuPhase::Verifying
+                | TpuPhase::Queued
                 | TpuPhase::Provisioning
                 | TpuPhase::Starting
                 | TpuPhase::LoadingWeights
@@ -84,6 +87,7 @@ impl TpuPhase {
     pub fn label(self) -> &'static str {
         match self {
             TpuPhase::Idle => "IDLE",
+            TpuPhase::Verifying => "VERIFYING KAGGLE",
             TpuPhase::Queued => "WAITING FOR TPU",
             TpuPhase::Provisioning => "STARTING MODEL",
             TpuPhase::Starting => "STARTING MODEL",
@@ -108,6 +112,7 @@ pub enum KaggleStatus {
     Error,
     Cancelled,
     NotFound,
+    Unavailable,
     /// Transient CLI/network failure: unknown is NOT a terminal signal.
     Unknown,
 }
@@ -209,21 +214,21 @@ impl MachineState {
             kernel: Some(kernel.to_string()),
             topic,
             model: Some(model),
-            phase: TpuPhase::Queued,
+            phase: TpuPhase::Verifying,
             ntfy_reachable: true,
             ..Default::default()
         };
     }
 
     /// Reattach to a kernel recorded in the local state file WITHOUT
-    /// fabricating a submission: the phase stays Idle until a real push
-    /// (do_start_state) or live reconciliation moves it forward.
+    /// fabricating a queue result: the phase stays Verifying until Kaggle or
+    /// launcher events provide authoritative lifecycle evidence.
     pub fn reattach_model(&mut self, kernel: &str, topic: Option<String>, model: ModelId) {
         *self = MachineState {
             kernel: Some(kernel.to_string()),
             topic,
             model: Some(model),
-            phase: TpuPhase::Idle,
+            phase: TpuPhase::Verifying,
             ntfy_reachable: true,
             ..Default::default()
         };
@@ -467,6 +472,13 @@ impl MachineState {
         match status {
             KaggleStatus::Unknown => {
                 // Transient CLI/network failure: keep the last known phase.
+            }
+            KaggleStatus::Unavailable => {
+                self.push_note(
+                    now,
+                    "Kaggle API cannot verify this private kernel yet",
+                    NoteKind::Warn,
+                );
             }
             KaggleStatus::Queued => {
                 if self.phase.rank() <= TpuPhase::Queued.rank() {
@@ -720,7 +732,7 @@ mod tests {
 
         // Pushing a new kernel resets the machine, terminal included.
         m.reset_for_kernel("u/k2", None);
-        assert_eq!(m.phase, TpuPhase::Queued);
+        assert_eq!(m.phase, TpuPhase::Verifying);
         assert!(m.terminal.is_none());
     }
 
@@ -731,6 +743,7 @@ mod tests {
         assert!(TpuPhase::Stopped.can_start());
         assert!(TpuPhase::Failed.can_start());
         assert!(!TpuPhase::Queued.can_start());
+        assert!(!TpuPhase::Verifying.can_start());
         assert!(!TpuPhase::Provisioning.can_start());
         assert!(!TpuPhase::Starting.can_start());
         assert!(!TpuPhase::LoadingWeights.can_start());
@@ -795,6 +808,18 @@ mod tests {
         ));
         m.reconcile(KaggleStatus::Unknown, 2_000);
         assert_eq!(m.phase, TpuPhase::Ready);
+    }
+
+    #[test]
+    fn unavailable_kaggle_status_stays_verifying() {
+        let mut m = MachineState::default();
+        m.reset_for_kernel("u/k", None);
+        m.reconcile(KaggleStatus::Unavailable, 2_000);
+        assert_eq!(m.phase, TpuPhase::Verifying);
+        assert!(m
+            .activity
+            .iter()
+            .any(|n| n.text.contains("cannot verify this private kernel")));
     }
 
     #[test]

@@ -61,6 +61,9 @@ pub mod testutil {
         pub fn not_found() -> Self {
             Self { status: KaggleStatus::NotFound }
         }
+        pub fn unavailable() -> Self {
+            Self { status: KaggleStatus::Unavailable }
+        }
     }
 
     impl KaggleApi for FakeKaggleApi {
@@ -134,8 +137,8 @@ pub fn tick_state(st: &AppState) -> SessionSnapshot {
         match &local {
             Some(l) => {
                 if m.kernel.as_deref() != Some(l.kernel.as_str()) {
-                    // Boot/reattach path: never fabricate a submission.
-                    // Only a real push (do_start_state) may claim Queued.
+                    // Boot/reattach path: never fabricate a queue result.
+                    // QUEUED is only entered after Kaggle reports it.
                     m.reattach_model(&l.kernel, Some(l.topic.clone()), l.model);
                     m.push_note(now, "Reattached to existing session", NoteKind::Info);
                 }
@@ -204,7 +207,10 @@ pub fn tick_state(st: &AppState) -> SessionSnapshot {
             } else if m.phase == TpuPhase::Ready {
                 let due = now - st.last_probe_at.load(Ordering::Relaxed) >= PROBE_WHILE_READY_EVERY;
                 (due, 1)
-            } else if matches!(kstatus, KaggleStatus::Running | KaggleStatus::Unknown) {
+            } else if matches!(
+                kstatus,
+                KaggleStatus::Running | KaggleStatus::Unknown | KaggleStatus::Unavailable
+            ) {
                 let due = now - st.last_probe_at.load(Ordering::Relaxed) >= PROBE_WHILE_UNKNOWN_EVERY;
                 (due, 2)
             } else {
@@ -289,7 +295,13 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
     if let Some(l) = &local {
         // Consult Kaggle BEFORE deciding anything (double-start guard).
         let status = st.kaggle_api.kernel_status(&l.kernel);
-        if matches!(status, KaggleStatus::Queued | KaggleStatus::Running) {
+        if matches!(
+            status,
+            KaggleStatus::Queued
+                | KaggleStatus::Running
+                | KaggleStatus::Unknown
+                | KaggleStatus::Unavailable
+        ) {
             {
                 let mut m = st.machine.lock().unwrap();
                 if m.kernel.as_deref() != Some(l.kernel.as_str()) {
@@ -307,7 +319,9 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
             }
             return Ok(tick_state(st));
         }
-        // Stale kernel (COMPLETE/ERROR/NOT_FOUND): fall through to a fresh push.
+        // Only a terminal/definitively missing kernel may fall through to a
+        // fresh push. Unknown is deliberately guarded above to avoid creating
+        // a second TPU while Kaggle's private-kernel API is unavailable.
     }
 
     // Fresh push through the existing launcher flow.
@@ -368,7 +382,8 @@ fn do_start_state(st: &AppState) -> Result<SessionSnapshot, String> {
 /// Official stop through `launch.py stop`. The state file is left in place;
 /// the next tick reconciles the kernel-removed status.
 pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
-    let can_stop = st.machine.lock().unwrap().phase.can_stop();
+    let previous_phase = st.machine.lock().unwrap().phase;
+    let can_stop = previous_phase.can_stop();
     if !can_stop {
         return Err("There is no active TPU session to stop".into());
     }
@@ -400,12 +415,8 @@ pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
                 m.push_note(now_secs(), "TPU session stopped", NoteKind::Info);
             }
             Err(msg) => {
-                // Roll the phase back so the user can retry or investigate.
-                m.phase = if m.ready_at.is_some() {
-                    TpuPhase::Ready
-                } else {
-                    TpuPhase::Queued
-                };
+                // Restore the exact phase from before the Stop attempt.
+                m.phase = previous_phase;
                 m.error = Some(crate::security::redact_for_log(msg));
                 m.push_note(now_secs(), "Stop failed", NoteKind::Error);
             }
@@ -585,7 +596,7 @@ pub fn request_refresh(app: &AppHandle) {
 pub fn poll_interval_secs(phase: TpuPhase) -> i64 {
     match phase {
         TpuPhase::Idle | TpuPhase::Stopped | TpuPhase::Failed => 60,
-        TpuPhase::Queued => 15,
+        TpuPhase::Verifying | TpuPhase::Queued => 15,
         TpuPhase::Provisioning
         | TpuPhase::Starting
         | TpuPhase::LoadingWeights
@@ -798,6 +809,20 @@ mod tests {
         let snap2 = start_state(&st2).expect("reattach");
         assert_eq!(snap2.phase, TpuPhase::Ready);
         assert_eq!(snap2.kernel.as_deref(), Some("u/k"));
+    }
+
+    #[test]
+    fn unavailable_private_kernel_does_not_allow_double_start() {
+        let (st, _) = make_state(
+            FakeKaggleApi::unavailable(),
+            FakeEvents::new(vec![], false),
+            FakeProbe { ok: false },
+            Some(state_val("u/k", "ktl-topic", "sk-testkey")),
+        );
+        let snap = start_state(&st).expect("must reattach while status is unavailable");
+        assert_eq!(snap.phase, TpuPhase::Verifying);
+        assert_eq!(snap.kernel.as_deref(), Some("u/k"));
+        assert!(!snap.phase.can_start());
     }
 
     #[test]
