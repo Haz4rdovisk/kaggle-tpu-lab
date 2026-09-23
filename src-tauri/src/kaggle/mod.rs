@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::pi;
 use crate::state::machine::{KaggleStatus, MachineState, NoteKind, TpuPhase};
 use crate::state::{now_secs, AppState, SessionSnapshot};
 use launcher::LocalState;
@@ -477,40 +476,6 @@ pub fn stop_state(st: &AppState) -> Result<SessionSnapshot, String> {
     }
 }
 
-/// Pi sync with full rollback.
-pub fn sync_pi_state(st: &AppState) -> Result<String, String> {
-    let (endpoint, context, model) = {
-        let m = st.machine.lock().unwrap();
-        let settings = st.settings.lock().unwrap();
-        (
-            m.endpoint.clone().filter(|_| m.endpoint_live),
-            m.max_model_len.unwrap_or(settings.qwen.context),
-            m.model.unwrap_or(settings.model),
-        )
-    };
-    if model != crate::state::model::ModelId::Qwen38_27b {
-        return Err("Pi sync for GLM is not enabled yet".into());
-    }
-    let endpoint = endpoint
-        .ok_or_else(|| "No live endpoint to sync yet — sync when the TPU is READY".to_string())?;
-    let key = st.api_key.lock().unwrap().clone().ok_or_else(|| {
-        "No session api key available (start a session first)".to_string()
-    })?;
-
-    let files = pi::pi_files();
-    if !files.models.exists() || !files.auth.exists() {
-        return Err("Pi config files not found (~/.pi/agent/models.json, auth.json)".into());
-    }
-    pi::sync(&files.models, &files.auth, &endpoint, context, &key)?;
-    // Optional CLI validation: file-level validation is the rollback boundary;
-    // a CLI hiccup is reported but never rolls back a validated write.
-    let _ = pi::validate_with_pi_cli(Duration::from_secs(60));
-
-    let mut m = st.machine.lock().unwrap();
-    m.push_note(now_secs(), "Pi synchronized", NoteKind::Success);
-    Ok("Pi provider kaggle-tpu updated".into())
-}
-
 // ---------------------------------------------------------------------------
 // Tauri wrappers (side effects only)
 // ---------------------------------------------------------------------------
@@ -555,9 +520,9 @@ pub fn tick(app: &AppHandle) -> SessionSnapshot {
             })
             .unwrap_or_else(|| "viewport=?".to_string());
         eprintln!(
-            "[tick] {} phase={:?} kernel={:?} endpoint={:?} live={} uptime={:?} ntfy={} pi={:?} err={:?}",
+            "[tick] {} phase={:?} kernel={:?} endpoint={:?} live={} uptime={:?} ntfy={} err={:?}",
             viewport, snap.phase, snap.kernel, snap.endpoint, snap.endpoint_live,
-            snap.uptime_secs, snap.ntfy_reachable, snap.pi_status, snap.error
+            snap.uptime_secs, snap.ntfy_reachable, snap.error
         );
     }
     snap
@@ -575,22 +540,6 @@ pub fn stop_session(app: &AppHandle) -> Result<SessionSnapshot, String> {
     let snap = stop_state(&st)?;
     emit_snapshot(app, &st, &snap);
     Ok(snap)
-}
-
-pub fn sync_pi(app: &AppHandle) -> Result<String, String> {
-    let st = app.state::<AppState>();
-    match sync_pi_state(&st) {
-        Ok(msg) => {
-            *st.pi_sync_error.lock().unwrap() = None;
-            emit_snapshot(app, &st, &st.snapshot(now_secs()));
-            Ok(msg)
-        }
-        Err(e) => {
-            *st.pi_sync_error.lock().unwrap() = Some(e.clone());
-            emit_snapshot(app, &st, &st.snapshot(now_secs()));
-            Err(e)
-        }
-    }
 }
 
 /// Single polling loop with phase-dependent intervals. One loop only; a
@@ -612,10 +561,7 @@ pub fn start_poller(app: AppHandle) {
                 // close button (hides to tray).
                 let st = app.state::<AppState>();
                 if !st.primed.swap(true, Ordering::AcqRel) {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+                    crate::tray::show_companion_panel(&app, None, false);
                 }
                 let interval = poll_interval_secs(snap.phase);
                 let deadline = now_secs() + interval;
@@ -1136,9 +1082,9 @@ mod tests {
         );
         let snap = tick_state(&st);
         eprintln!(
-            "LIVE phase={:?} kernel={:?} endpoint={:?} live={} uptime={:?} tok/s={:?} ntfy={} pi={:?} err={:?}",
+            "LIVE phase={:?} kernel={:?} endpoint={:?} live={} uptime={:?} tok/s={:?} ntfy={} err={:?}",
             snap.phase, snap.kernel, snap.endpoint, snap.endpoint_live,
-            snap.uptime_secs, snap.decode_tok_s, snap.ntfy_reachable, snap.pi_status, snap.error
+            snap.uptime_secs, snap.decode_tok_s, snap.ntfy_reachable, snap.error
         );
         // The real session must be detected as an active (not-dead) session.
         assert!(

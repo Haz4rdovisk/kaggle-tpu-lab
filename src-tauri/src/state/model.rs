@@ -30,6 +30,13 @@ impl ModelId {
         }
     }
 
+    pub fn served_name(self) -> &'static str {
+        match self {
+            Self::Qwen38_27b => "qwen3.8-27b",
+            Self::Glm53Flash => "glm-5.3-flash",
+        }
+    }
+
     pub fn parse_cli_id(value: &str) -> Option<Self> {
         match value {
             "qwen38-27b" => Some(Self::Qwen38_27b),

@@ -1,17 +1,17 @@
 import { useEffect } from "react";
-import { ArrowSquareOut, ArrowsClockwise, GearSix, Minus, Moon, Play, Stop, Sun, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, ArrowsClockwise, Moon, Play, Stop, Sun, X } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import StatusHero from "./components/StatusHero";
 import Metrics from "./components/Metrics";
-import EndpointRow from "./components/EndpointRow";
-import PiRow from "./components/PiRow";
+import ConnectCard from "./components/ConnectCard";
 import ActivityLog from "./components/ActivityLog";
 import StopModal from "./components/StopModal";
 import SettingsModal from "./components/SettingsModal";
+import LaunchProfile from "./components/LaunchProfile";
 import { useApp, actions, setState } from "./lib/store";
 import { setThemePref, useTheme } from "./lib/theme";
 import { previewMode } from "./lib/backend";
-import { CAN_START, CAN_STOP, type SessionSnapshot } from "./types/session";
+import { CAN_START, CAN_STOP, MODEL_LABELS, type SessionSnapshot, type Settings } from "./types/session";
 
 function Header({ snap }: { snap: SessionSnapshot | null }) {
   const { busy } = useApp();
@@ -52,24 +52,8 @@ function Header({ snap }: { snap: SessionSnapshot | null }) {
         >
           {theme === "dark" ? <Sun size={14} aria-hidden /> : <Moon size={14} aria-hidden />}
         </button>
-        <button
-          className="icon-btn"
-          onClick={() => setState({ showSettings: true })}
-          title="Settings"
-          aria-label="Settings"
-        >
-          <GearSix size={14} aria-hidden />
-        </button>
         {win && (
           <div className="win-controls">
-            <button
-              className="win-btn"
-              onClick={() => void win.minimize()}
-              title="Minimize"
-              aria-label="Minimize window"
-            >
-              <Minus size={14} aria-hidden />
-            </button>
             <button
               className="win-btn win-btn-close"
               onClick={() => void win.close()}
@@ -85,7 +69,7 @@ function Header({ snap }: { snap: SessionSnapshot | null }) {
   );
 }
 
-function Footer({ snap }: { snap: SessionSnapshot | null }) {
+function Footer({ snap, settings }: { snap: SessionSnapshot | null; settings: Settings | null }) {
   const { busy } = useApp();
   const phase = snap?.phase;
   const canStart = phase != null && CAN_START.includes(phase);
@@ -101,7 +85,11 @@ function Footer({ snap }: { snap: SessionSnapshot | null }) {
           onClick={() => void actions.start()}
         >
           <Play size={15} weight="bold" aria-hidden />
-          {busy === "start" ? "Starting…" : "Start TPU session"}
+          {busy === "start"
+            ? `Starting ${settings ? MODEL_LABELS[settings.model] : "TPU"}…`
+            : settings
+              ? `Start ${MODEL_LABELS[settings.model]}`
+              : "Start TPU session"}
         </button>
       )}
       {canStop && (
@@ -124,7 +112,7 @@ function Footer({ snap }: { snap: SessionSnapshot | null }) {
 }
 
 export default function App() {
-  const { snapshot, errorBanner, endpointCopied } = useApp();
+  const { snapshot, settings, errorBanner } = useApp();
 
   useEffect(() => {
     void actions.init();
@@ -154,9 +142,9 @@ export default function App() {
               model={snapshot.model}
               error={snapshot.error}
             />
+            {settings && <LaunchProfile settings={settings} />}
             <Metrics snap={snapshot} />
-            <EndpointRow snap={snapshot} copied={endpointCopied} />
-            <PiRow />
+            <ConnectCard snap={snapshot} />
             <ActivityLog activity={snapshot.activity} />
           </>
         ) : (
@@ -166,7 +154,7 @@ export default function App() {
           </div>
         )}
       </main>
-      {snapshot && <Footer snap={snapshot} />}
+      {snapshot && <Footer snap={snapshot} settings={settings} />}
       <StopModal />
       <SettingsModal />
     </div>

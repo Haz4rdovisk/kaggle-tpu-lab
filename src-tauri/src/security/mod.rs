@@ -1,8 +1,9 @@
 //! Secret hygiene.
 //!
 //! The session API key lives only in the state file and in Rust memory. It is
-//! never serialized into snapshots, never rendered by the UI, never logged,
-//! and never copied to the clipboard by this app.
+//! never serialized into snapshots, never rendered by the UI, and never logged.
+//! Explicit copy actions may place the key or connection setup on the clipboard,
+//! but that happens entirely in Rust so the raw key is never exposed to React.
 
 const SECRET_KEYS: &[&str] = &[
     "api_key",

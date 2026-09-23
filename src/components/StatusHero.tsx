@@ -32,15 +32,23 @@ interface Props {
 
 export default function StatusHero({ phase, kernel, model, error }: Props) {
   const meta = PHASE_META[phase];
+  const modelRole = kernel ? "Active" : "Selected";
   return (
     <section className={`hero tone-${meta.tone}`} aria-live="polite">
-      <div className="hero-phase-row">
-        <span className={`dot ${meta.pulse ? "pulse" : ""}`} aria-hidden />
-        <h1 className={`hero-phase tone-${meta.tone}`}>{meta.label}</h1>
+      <div className="hero-top-row">
+        <div className="hero-phase-row">
+          <span className={`dot ${meta.pulse ? "pulse" : ""}`} aria-hidden />
+          <h1 className={`hero-phase tone-${meta.tone}`}>{meta.label}</h1>
+        </div>
+        {model && (
+          <div className="hero-model-badge">
+            <span>{modelRole}</span>
+            <strong>{MODEL_LABELS[model]}</strong>
+          </div>
+        )}
       </div>
       <p className="hero-sub">
         {kernel ?? "No active session"}
-        {kernel && model ? ` · ${MODEL_LABELS[model]} on TPU` : ""}
       </p>
       {error && (
         <div className="hero-error" role="alert">

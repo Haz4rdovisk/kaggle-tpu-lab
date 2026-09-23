@@ -4,7 +4,6 @@
 //! Layout:
 //!   state/     application state + pure session state machine + settings
 //!   kaggle/    launcher reuse, ntfy events, endpoint probe, orchestration
-//!   pi/        Pi provider sync with backup/validation/rollback
 //!   process/   safe, specific process helpers (no arbitrary shell bridge)
 //!   security/  secret hygiene
 //!   commands/  the only surface the frontend can reach
@@ -12,7 +11,6 @@
 
 mod commands;
 mod kaggle;
-mod pi;
 mod process;
 mod security;
 mod state;
@@ -24,12 +22,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = window.set_always_on_top(false);
-            }
-            crate::kaggle::request_refresh(app);
+            crate::tray::show_companion_panel(app, None, true);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -39,10 +32,11 @@ pub fn run() {
             commands::refresh_status,
             commands::start_tpu,
             commands::stop_tpu,
-            commands::sync_pi_cmd,
-            commands::get_pi_status,
             commands::open_kaggle,
             commands::copy_endpoint,
+            commands::copy_api_key,
+            commands::copy_model_name,
+            commands::copy_connection_setup,
             commands::get_settings,
             commands::save_settings,
         ])
@@ -70,13 +64,20 @@ pub fn run() {
             // Single polling loop (phase-dependent intervals).
             kaggle::start_poller(handle.clone());
 
-            // Closing the panel hides it; the app keeps living in the tray.
+            // Companion behavior: close or focus loss hides the flyout while
+            // the tray process keeps running.
             if let Some(window) = app.get_webview_window("main") {
                 let w2 = window.clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        let _ = w2.hide();
-                        api.prevent_close();
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            let _ = w2.hide();
+                            api.prevent_close();
+                        }
+                        tauri::WindowEvent::Focused(false) => {
+                            let _ = w2.hide();
+                        }
+                        _ => {}
                     }
                 });
             }

@@ -17,12 +17,16 @@ export type TpuPhase =
   | "stopped"
   | "failed";
 
-export type PiState = "notConfigured" | "synced" | "stale" | "syncFailed";
 export type ModelId = "qwen38-27b" | "glm53-flash";
 
 export const MODEL_LABELS: Record<ModelId, string> = {
   "qwen38-27b": "Qwen3.8-27B",
   "glm53-flash": "GLM-5.3-Flash",
+};
+
+export const MODEL_API_NAMES: Record<ModelId, string> = {
+  "qwen38-27b": "qwen3.8-27b",
+  "glm53-flash": "glm-5.3-flash",
 };
 
 export type NoteKind = "info" | "success" | "warn" | "error";
@@ -55,8 +59,6 @@ export interface SessionSnapshot {
   mtpTokens: number | null;
   textOnly: boolean | null;
   hasApiKey: boolean;
-  piStatus: PiState;
-  piSyncSupported: boolean;
   ntfyReachable: boolean;
   activity: ActivityNote[];
   error: string | null;

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ArrowCounterClockwise, X } from "@phosphor-icons/react";
 import type { ModelId, Settings } from "../types/session";
 import { useApp, actions } from "../lib/store";
-import { setThemePref, useTheme } from "../lib/theme";
 
 const DEFAULTS: Settings = {
   projectRoot: null,
@@ -28,7 +27,6 @@ export default function SettingsModal() {
   const { settings, showSettings, busy } = useApp();
   const [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { pref } = useTheme();
 
   if (!showSettings) return null;
   const base = draft ?? settings ?? DEFAULTS;
@@ -81,14 +79,14 @@ export default function SettingsModal() {
     >
       <div className="modal modal-wide">
         <div className="modal-head-row">
-          <h2 id="settings-title" className="modal-title">Session settings</h2>
+          <h2 id="settings-title" className="modal-title">Settings</h2>
           <button className="icon-btn" onClick={actions.closeSettings} aria-label="Close settings">
             <X size={15} aria-hidden />
           </button>
         </div>
 
         <p className="modal-body muted">
-          Applied to the next Start. A running Kaggle session keeps its current model and profile.
+          Applied to the next Start. A running Kaggle job keeps its current model and profile.
         </p>
 
         <div className="field-grid">
@@ -220,28 +218,11 @@ export default function SettingsModal() {
 
         {base.model === "glm53-flash" && (
           <p className="modal-body muted">
-            GLM uses the launcher's serve-dataset default. Pi synchronization remains Qwen-only for now.
+            GLM uses the launcher's serve-dataset default.
           </p>
         )}
 
         {error && <div className="form-error" role="alert">{error}</div>}
-
-        <div className="field">
-          <span>Theme</span>
-          <div className="segmented" role="group" aria-label="Theme">
-            {(["system", "light", "dark"] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={pref === p ? "seg-btn is-active" : "seg-btn"}
-                aria-pressed={pref === p}
-                onClick={() => setThemePref(p)}
-              >
-                {p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <div className="modal-actions">
           <button

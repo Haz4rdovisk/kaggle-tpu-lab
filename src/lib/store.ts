@@ -6,7 +6,8 @@ import { useSyncExternalStore } from "react";
 import type { SessionSnapshot, Settings } from "../types/session";
 import { backend } from "./backend";
 
-export type Busy = null | "start" | "stop" | "sync" | "refresh";
+export type Busy = null | "start" | "stop" | "refresh";
+export type ConnectionCopy = null | "endpoint" | "model" | "key" | "setup";
 
 export interface AppState {
   snapshot: SessionSnapshot | null;
@@ -15,7 +16,7 @@ export interface AppState {
   errorBanner: string | null;
   showStopModal: boolean;
   showSettings: boolean;
-  endpointCopied: boolean;
+  connectionCopied: ConnectionCopy;
 }
 
 const initial: AppState = {
@@ -25,7 +26,7 @@ const initial: AppState = {
   errorBanner: null,
   showStopModal: false,
   showSettings: false,
-  endpointCopied: false,
+  connectionCopied: null,
 };
 
 let state: AppState = initial;
@@ -107,20 +108,16 @@ export const actions = {
     );
   },
 
-  syncPi() {
-    return withBusy("sync", () => backend.syncPi(), () => {
-      // Re-pull state so the Pi badge reflects the new sync.
-      void backend.getState().then((s) => setState({ snapshot: s }));
-    });
-  },
-
-  async copyEndpoint() {
+  async copyConnection(kind: Exclude<ConnectionCopy, null>) {
     try {
-      await backend.copyEndpoint();
-      setState({ endpointCopied: true });
+      if (kind === "endpoint") await backend.copyEndpoint();
+      if (kind === "model") await backend.copyModelName();
+      if (kind === "key") await backend.copyApiKey();
+      if (kind === "setup") await backend.copyConnectionSetup();
+      setState({ connectionCopied: kind });
       if (copyResetTimer) window.clearTimeout(copyResetTimer);
       copyResetTimer = window.setTimeout(
-        () => setState({ endpointCopied: false }),
+        () => setState({ connectionCopied: null }),
         1600,
       );
     } catch (e) {

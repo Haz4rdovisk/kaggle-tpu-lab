@@ -64,7 +64,6 @@ export default function Metrics({ snap }: Props) {
       <div className="metrics-secondary">
         <Metric label="DECODE" value={snap.decodeTokS != null ? `${formatTokS(snap.decodeTokS)} t/s` : "—"} muted={snap.decodeTokS == null} />
         <Metric label="CONTEXT" value={formatInt(snap.maxModelLen)} muted={snap.maxModelLen == null} />
-        <Metric label="KEEPALIVE" value={snap.keepaliveMin != null ? formatDuration(snap.keepaliveMin * 60) : "—"} muted={snap.keepaliveMin == null} />
       </div>
     </section>
   );

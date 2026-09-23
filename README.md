@@ -65,11 +65,9 @@ persisted launch profile: Qwen exposes its context/MTP/fast-start/async-scheduli
 while GLM exposes context/streams/reasoning and uses the launcher's serve-dataset default.
 The active model is stored in the launcher state file, so re-attaching never mistakes one
 model's endpoint for the other. Qwen publishes an OpenAI `/v1` base directly; GLM publishes
-the tunnel root, and the companion normalizes it when probing the OpenAI `/v1/models` route.
-
-Pi synchronization is still **Qwen-only** in the companion. A GLM session can be launched,
-monitored and stopped normally, but the Pi sync control stays disabled for it until a
-model-aware Pi profile is added.
+the tunnel root, and the companion normalizes it to the same OpenAI-compatible base URL.
+When the endpoint is live, the Companion exposes a harness-agnostic Connect card for copying
+the normalized base URL, API key, served model name, or a ready-to-paste environment setup.
 
 For the desktop app, keep this repository checkout and its `.venv` available on the
 machine; the app invokes that Python environment and `launch.py` rather than bundling a

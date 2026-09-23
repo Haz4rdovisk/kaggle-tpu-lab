@@ -1,0 +1,39 @@
+Kaggle TPU Companion 0.4.5 - Changelog
+Date: 2026-09-22
+
+Companion UI
+- Removed the redundant Settings button from the header; Settings remains accessible from the Next model card and tray menu.
+- Added a Next model card with model-specific context, reasoning and stream/MTP information.
+- Removed the Theme section from Settings while keeping the header theme toggle.
+- Removed keepalive from the main dashboard; keepalive remains configurable in Settings.
+- Removed the old Endpoint and Pi rows and introduced a compact CONNECT card.
+
+Universal model connection
+- Removed Pi Sync and all Pi-specific frontend, backend, tray and state integration.
+- Added a harness-agnostic OpenAI-compatible connection workflow.
+- Added copy actions for Base URL, served model name, API key and complete environment setup.
+- Normalized copied endpoints to an OpenAI-compatible /v1 base URL.
+- Kept the raw API key out of React snapshots and logs; explicit clipboard copies are performed in Rust.
+- Current served model IDs are qwen3.8-27b and glm-5.3-flash.
+
+Tray companion behavior
+- Converted the app from a conventional desktop window into a tray companion/flyout.
+- The window is non-resizable, undecorated, always on top, hidden from the taskbar and kept alive in the tray.
+- Closing the panel hides it instead of terminating the app.
+- Losing focus hides the flyout.
+- Single-instance activation and startup reveal use the same companion panel behavior.
+- Tray clicks select the correct monitor and position the panel next to the taskbar/work area.
+- Fixed horizontal placement for top/bottom taskbars so the panel always opens against the right edge of the monitor work area instead of aligning its right edge with the tray icon.
+
+Model/session support
+- Preserved the existing stale-session protection and duplicate-start guards.
+- Preserved model-aware Qwen and GLM lifecycle handling, endpoint probing and tunnel normalization.
+- Updated README documentation for the universal OpenAI-compatible connection workflow.
+
+Release
+- Version bumped to 0.4.5 across npm, Cargo and Tauri configuration.
+- NSIS and MSI release bundles build successfully.
+- Final validation: frontend production build passed; Rust library tests passed with 58 passed, 0 failed and 1 ignored; git diff --check passed.
+
+Notes
+- Unrelated files under docs/ are intentionally not part of this release commit.

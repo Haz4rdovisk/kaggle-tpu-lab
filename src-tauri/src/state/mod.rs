@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use crate::kaggle::launcher::Launcher;
 use crate::kaggle::probe::EndpointProbe;
 use crate::kaggle::{EventSource, KaggleApi};
-use crate::pi::PiState;
 use crate::state::machine::{ActivityNote, KaggleStatus, MachineState, TpuPhase};
 use crate::state::model::ModelId;
 use crate::state::settings::Settings;
@@ -43,8 +42,6 @@ pub struct SessionSnapshot {
     pub mtp_tokens: Option<i64>,
     pub text_only: Option<bool>,
     pub has_api_key: bool,
-    pub pi_status: PiState,
-    pub pi_sync_supported: bool,
     pub ntfy_reachable: bool,
     pub activity: Vec<ActivityNote>,
     pub error: Option<String>,
@@ -76,8 +73,6 @@ pub struct AppState {
     pub last_snapshot_json: Mutex<String>,
     /// Channel used to request an immediate tick (panel open / tray action).
     pub refresh_tx: Mutex<Option<std::sync::mpsc::Sender<()>>>,
-    /// Last Pi sync failure (UI shows SYNC FAILED + Retry until next success).
-    pub pi_sync_error: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -106,7 +101,6 @@ impl AppState {
             last_kaggle_status: Mutex::new(None),
             last_snapshot_json: Mutex::new(String::new()),
             refresh_tx: Mutex::new(None),
-            pi_sync_error: Mutex::new(None),
         }
     }
 
@@ -125,11 +119,6 @@ impl AppState {
         let last_status = *self.last_kaggle_status.lock().unwrap();
         let effective_model = m.model.unwrap_or(st.model);
         let profile_matches = m.model.is_none() || m.model == Some(st.model);
-        let pi = if self.pi_sync_error.lock().unwrap().is_some() {
-            crate::pi::PiState::SyncFailed
-        } else {
-            crate::pi::assess_current(m.endpoint.as_deref())
-        };
         SessionSnapshot {
             phase: m.phase,
             model: Some(effective_model),
@@ -156,8 +145,6 @@ impl AppState {
             },
             text_only: m.text_only.or_else(|| profile_matches.then(|| st.selected_text_only())),
             has_api_key: key.is_some(),
-            pi_status: pi,
-            pi_sync_supported: effective_model == ModelId::Qwen38_27b,
             ntfy_reachable: m.ntfy_reachable,
             activity: m.activity.clone(),
             error: m.error.clone(),

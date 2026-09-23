@@ -7,7 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { SessionSnapshot, Settings } from "../types/session";
+import type { ModelId, SessionSnapshot, Settings } from "../types/session";
 
 export const isInTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -21,9 +21,11 @@ const t = {
   refresh: () => invoke<SessionSnapshot>("refresh_status"),
   start: () => invoke<SessionSnapshot>("start_tpu"),
   stop: () => invoke<SessionSnapshot>("stop_tpu"),
-  syncPi: () => invoke<string>("sync_pi_cmd"),
   openKaggle: () => invoke<void>("open_kaggle"),
   copyEndpoint: () => invoke<void>("copy_endpoint"),
+  copyApiKey: () => invoke<void>("copy_api_key"),
+  copyModelName: () => invoke<void>("copy_model_name"),
+  copyConnectionSetup: () => invoke<void>("copy_connection_setup"),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (s: Settings) => invoke<Settings>("save_settings", { settings: s }),
   onSessionUpdate: (cb: (s: SessionSnapshot) => void): Promise<UnlistenFn> =>
@@ -39,13 +41,22 @@ const t = {
 // ---------------------------------------------------------------------------
 
 const MOCK_KERNEL = "lucastq/qwen38-tpu-serve";
+const MOCK_GLM_KERNEL = "lucastq/glm53-tpu-serve";
 const MOCK_ENDPOINT =
   "https://apollo-powerseller-pressing-instrument.trycloudflare.com/v1";
 const MOCK_READY_AT = Math.floor(Date.now() / 1000) - (6 * 3600 + 42 * 60);
 const MOCK_KEEPALIVE = 480;
 
+function mockModel(): ModelId {
+  if (typeof location === "undefined") return "qwen38-27b";
+  const value = new URLSearchParams(location.search).get("model");
+  return value === "glm53-flash" || value === "glm" ? "glm53-flash" : "qwen38-27b";
+}
+
 function mockSnapshot(): SessionSnapshot {
   const now = Math.floor(Date.now() / 1000);
+  const model = mockModel();
+  const kernel = model === "glm53-flash" ? MOCK_GLM_KERNEL : MOCK_KERNEL;
   const uptime = now - MOCK_READY_AT;
   const servingFrom = now - (5 * 3600 + 20 * 60);
   const remaining = MOCK_KEEPALIVE * 60 - (now - servingFrom);
@@ -56,9 +67,9 @@ function mockSnapshot(): SessionSnapshot {
 
   const base: SessionSnapshot = {
     phase: "ready",
-    model: "qwen38-27b",
+    model,
     kaggleStatus: "running",
-    kernel: MOCK_KERNEL,
+    kernel,
     endpoint: MOCK_ENDPOINT,
     endpointLive: true,
     readyAt: MOCK_READY_AT,
@@ -73,11 +84,9 @@ function mockSnapshot(): SessionSnapshot {
     remainingEstimated: true,
     decodeTokS: 106.8,
     maxModelLen: 262144,
-    mtpTokens: 3,
+    mtpTokens: model === "qwen38-27b" ? 3 : null,
     textOnly: true,
     hasApiKey: true,
-    piStatus: "synced",
-    piSyncSupported: true,
     ntfyReachable: true,
     activity: [
       { ts: now - 12 * 60, text: "Heartbeat (up ~6h 10m)", kind: "info" },
@@ -99,7 +108,7 @@ function mockSnapshot(): SessionSnapshot {
         ...base, phase: "idle", kernel: null, endpoint: null, endpointLive: false,
         readyAt: null, queuedAt: null, allocatedAt: null, servingFrom: null,
         uptimeSecs: null, remainingSecs: null, decodeTokS: null, maxModelLen: null,
-        mtpTokens: null, hasApiKey: false, piStatus: "notConfigured", ntfyReachable: true,
+        mtpTokens: null, hasApiKey: false, ntfyReachable: true,
         activity: [],
       };
     case "queued":
@@ -123,7 +132,7 @@ function mockSnapshot(): SessionSnapshot {
         ...base, phase: "failed", endpointLive: false, readyAt: null, servingFrom: null,
         uptimeSecs: null, remainingSecs: null, decodeTokS: null, mtpTokens: null,
         queuedAt: now - 8 * 60,
-        piStatus: "stale", ntfyReachable: false,
+        ntfyReachable: false,
         error: "vLLM exited with code 1 (CUDA OOM during compile)",
         activity: [
           { ts: now - 15, text: "vLLM exited with code 1 (CUDA OOM during compile)", kind: "error" },
@@ -170,19 +179,29 @@ const mock = {
     ];
     return s;
   },
-  async syncPi(): Promise<string> {
-    return "Pi provider kaggle-tpu updated";
-  },
   async openKaggle(): Promise<void> {
     window.open(`https://www.kaggle.com/code/${MOCK_KERNEL}`, "_blank");
   },
   async copyEndpoint(): Promise<void> {
-    await navigator.clipboard.writeText(MOCK_ENDPOINT);
+    const endpoint = mockModel() === "glm53-flash" ? MOCK_ENDPOINT.replace(/\/v1$/, "") : MOCK_ENDPOINT;
+    await navigator.clipboard.writeText(endpoint.endsWith("/v1") ? endpoint : `${endpoint}/v1`);
+  },
+  async copyApiKey(): Promise<void> {
+    await navigator.clipboard.writeText("sk-preview-only");
+  },
+  async copyModelName(): Promise<void> {
+    await navigator.clipboard.writeText(mockModel() === "glm53-flash" ? "glm-5.3-flash" : "qwen3.8-27b");
+  },
+  async copyConnectionSetup(): Promise<void> {
+    const model = mockModel() === "glm53-flash" ? "glm-5.3-flash" : "qwen3.8-27b";
+    const endpoint = mockModel() === "glm53-flash" ? MOCK_ENDPOINT.replace(/\/v1$/, "") : MOCK_ENDPOINT;
+    const base = endpoint.endsWith("/v1") ? endpoint : `${endpoint}/v1`;
+    await navigator.clipboard.writeText(`OPENAI_BASE_URL=${base}\nOPENAI_API_KEY=sk-preview-only\nOPENAI_MODEL=${model}`);
   },
   async getSettings(): Promise<Settings> {
     return {
       projectRoot: null,
-      model: "qwen38-27b",
+      model: mockModel(),
       keepaliveMin: 480,
       qwen: {
         context: 262144,
